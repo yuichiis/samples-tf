@@ -210,6 +210,7 @@ class DqnAgent:
         discounts = tf.constant(traj.discount)
         return (states, actions, next_states, rewards, discounts)
 
+    @tf.function
     def train(self, batch_size):
         if self.replay_buffer.len() < batch_size:
             return 0
@@ -282,7 +283,7 @@ class BoltzmannQPolicy:
         action = np.random.choice(range(nb_actions), p=probs)
         return action
 
-num_iterations = 2000#0#400
+num_iterations = 20000#400
 max_number_of_steps = 200
 gamma = 0.999#1.0#0.95#0.99
 reward_scale_factor = 1.0

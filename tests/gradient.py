@@ -269,12 +269,99 @@ import numpy as np
 #print(gradients)
 
 ##################################################
-a = tf.Variable(np.array([9.0],dtype=np.float32))
+#a = tf.Variable(np.array([9.0],dtype=np.float32))
+#
+#
+#with tf.GradientTape() as tape:
+#    c = tf.math.sqrt(a)
+#
+#gradients = tape.gradient(c, a)
+#print('sqrt')
+#print(c)
+#print(gradients)
 
+##################################################
+#@tf.function
+#def ccc(x):
+#    print('a',i)
+#    y = tf.math.sqrt(x)
+#    return y
+#
+#a = tf.Variable(np.array([9.0],dtype=np.float32))
+#
+#print('b')
+#
+#for i in range(3):
+#    #i = tf.constant(i)
+#    with tf.GradientTape() as tape:
+#        with tf.name_scope('g'):
+#            y = ccc(a)
+#    gradients = tape.gradient(y, a)
+
+
+#import timeit
+#print(timeit.timeit(lambda: ggg(a), number=10000))
+
+##################################################
+#class TestModel(tf.keras.Model):
+#    def __init__(self,**kwargs):
+#        super(TestModel, self).__init__(**kwargs)
+#        self.cnst = tf.constant([1.0])
+#        self.v = tf.Variable([1.0])
+#        self.layer = tf.keras.layers.Dense(4,input_shape=(3,))
+#
+#    #@tf.function
+#    def call(self,inputs,c):
+#        print('call',c)
+#        outputs = self.layer(inputs)
+#        return outputs
+#
+#model = TestModel()
+##model.compile(loss='mse')
+#
+#inputs = np.array([[2.0,2.0,2.0],[3.0,3.0,3.0]],dtype=np.float32)
+#c = tf.constant(1.)
+#print('======start predicts======')
+#for i in range(3):
+##    model.predict(inputs)
+#    print('done')
+#
+#print('======start grads======')
+#for i in range(3):
+#    with tf.GradientTape() as tape:
+#        outputs = model(inputs,c)
+#    gradients = tape.gradient(outputs, model.trainable_variables+[c])
+#    #print(gradients)
+#    print('done')
+#
+#print('======variables======')
+#for v in model.variables:
+#    print(v)
+#print('======trainable variables======')
+#for v in model.trainable_variables:
+#    print(v)
+#
+#print('======non trainable variables======')
+#for v in model.non_trainable_variables:
+#    print(v)
+#print('======submodules======')
+#for v in model.submodules:
+#    print(v)
+#print('const=',tf.constant(np.array([1.])))    
+#print('null=',tf.Variable(None))    
+#
+l = tf.keras.layers.Dense(3,kernel_initializer='ones')
+#a = np.array([[2.],[3.],[3.]],dtype=np.float32)
+#b = np.array([[2.],[4.],[3.]],dtype=np.float32)
+a = tf.Variable([[2.],[3.],[3.]])
+b = tf.Variable([[2.],[4.],[3.]])
 with tf.GradientTape() as tape:
-    c = tf.math.sqrt(a)
-
-gradients = tape.gradient(c, a)
-print('sqrt')
-print(c)
-print(gradients)
+    x = a+b
+    print(x)
+    y = l(x)
+    print(y)
+print(a)
+grads = tape.gradient(y,[a,x])
+for v in grads:
+    print(v)
+    print(v.name)

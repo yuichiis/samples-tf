@@ -189,6 +189,7 @@ class DqnAgent:
         discounts = tf.constant(traj.discount)
         return (states, actions, next_states, rewards, discounts)
 
+    @tf.function
     def train(self, batch_size):
         if self.replay_buffer.len() < batch_size:
             return 0
@@ -290,7 +291,7 @@ def get_screen(env):
     screen = tf.image.resize(screen,[40,90],method=tf.image.ResizeMethod.BICUBIC)
     return screen.numpy()
 
-num_iterations = 2000#400
+num_iterations = 10000#400
 max_number_of_steps = 200
 gamma = 0.999#1.0#0.95#0.99
 reward_scale_factor = 1.0
@@ -302,8 +303,8 @@ target_update_period = 10#200#None#150#100
 epsilon_start = 1.0 #0.1#
 epsilon_stop =  0.05#0.1#0.01
 decay_rate = 0.01#0.001
-log_interval = 1
-eval_interval = 100
+log_interval = 100
+eval_interval = 1000
 num_eval_episodes = 10
 loss_fn = None#tf.keras.losses.MeanSquaredError()
 optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)

@@ -3,6 +3,7 @@ import tensorflow as tf
 from tensorflow.keras import layers
 import numpy as np
 import matplotlib.pyplot as plt
+from os.path import exists
 
 problem = "Pendulum-v1"
 env = gym.make(problem)
@@ -99,15 +100,17 @@ class Buffer:
 
         with tf.GradientTape() as tape:
             actions = actor_model(state_batch, training=True)
-            critic_value = critic_model([state_batch, actions], training=True)
+            critic_value_t = critic_model([state_batch, actions], training=True)
             # Used `-value` as we want to maximize the value given
             # by the critic for our actions
-            actor_loss = -tf.math.reduce_mean(critic_value)
+            actor_loss = -tf.math.reduce_mean(critic_value_t)
+            # actor_loss = -tf.math.reduce_mean(tf.math.square(critic_value_t))
 
         actor_grad = tape.gradient(actor_loss, actor_model.trainable_variables)
         actor_optimizer.apply_gradients(
             zip(actor_grad, actor_model.trainable_variables)
         )
+        return (actor_loss,y)
 
     # We compute the loss and update parameters
     def learn(self):
@@ -123,7 +126,7 @@ class Buffer:
         reward_batch = tf.cast(reward_batch, dtype=tf.float32)
         next_state_batch = tf.convert_to_tensor(self.next_state_buffer[batch_indices])
 
-        self.update(state_batch, action_batch, reward_batch, next_state_batch)
+        return self.update(state_batch, action_batch, reward_batch, next_state_batch)
 
 
 # This update target parameters slowly
@@ -184,6 +187,16 @@ def policy(state, noise_object):
 std_dev = 0.2
 ou_noise = OUActionNoise(mean=np.zeros(1), std_deviation=float(std_dev) * np.ones(1))
 
+# noi = []
+# for _ in range(100):
+#     #x = ou_noise()
+#     x = np.random.normal([1]) * np.sqrt(1e-2)
+#     noi.append(x)
+# 
+# plt.plot(noi)
+# plt.show()
+# exit()
+
 actor_model = get_actor()
 critic_model = get_critic()
 
@@ -207,61 +220,115 @@ gamma = 0.99
 # Used to update target networks
 tau = 0.005
 
+
+# buffer = Buffer(2, 2)
+# 
+# prev_state = np.array([0.,0.,0.],np.float32)
+# action = np.array([0.1],np.float32)
+# reward = 0.1
+# state = np.array([0.,0.1,0.1],np.float32)
+# buffer.record((prev_state, action, reward, state))
+# buffer.record((prev_state, action, reward, state))
+# 
+# losses = [];
+# for _ in range(1):
+#     actor_loss,critic_value = buffer.learn()
+#     print(critic_value)
+#     losses.append(actor_loss)
+# 
+# # plt.plot(losses)
+# # plt.show()
+# exit()
+# 
+# layer = tf.keras.layers.Dense(1)
+# i = tf.Variable([[0,0.5,0.1],[0,0.5,0.1]])
+# print(layer(i))
+# exit()
+
+
 buffer = Buffer(50000, 64)
 
-# To store reward history of each episode
-ep_reward_list = []
-# To store average reward history of last few episodes
-avg_reward_list = []
+if not exists('pendulum_actor.h5'):
 
-# Takes about 4 min to train
-for ep in range(total_episodes):
+    # To store reward history of each episode
+    ep_reward_list = []
+    # To store average reward history of last few episodes
+    avg_reward_list = []
+    avg_losses_list = []
 
-    prev_state = env.reset()
-    episodic_reward = 0
+    # Takes about 4 min to train
+    for ep in range(total_episodes):
+        losses = [];
 
-    while True:
-        # Uncomment this to see the Actor in action
-        # But not in a python notebook.
-        # env.render()
+        prev_state = env.reset()
+        episodic_reward = 0
 
-        tf_prev_state = tf.expand_dims(tf.convert_to_tensor(prev_state), 0)
+        while True:
+            # Uncomment this to see the Actor in action
+            # But not in a python notebook.
+            # env.render()
 
-        action = policy(tf_prev_state, ou_noise)
-        # Recieve state and reward from environment.
-        state, reward, done, info = env.step(action)
+            tf_prev_state = tf.expand_dims(tf.convert_to_tensor(prev_state), 0)
 
-        buffer.record((prev_state, action, reward, state))
-        episodic_reward += reward
+            action = policy(tf_prev_state, ou_noise)
+            # Recieve state and reward from environment.
+            state, reward, done, info = env.step(action)
 
-        buffer.learn()
-        update_target(target_actor.variables, actor_model.variables, tau)
-        update_target(target_critic.variables, critic_model.variables, tau)
+            buffer.record((prev_state, action, reward, state))
+            episodic_reward += reward
 
-        # End this episode when `done` is True
-        if done:
-            break
+            actor_loss,critic_value = buffer.learn()
+            losses.append(actor_loss)
+            update_target(target_actor.variables, actor_model.variables, tau)
+            update_target(target_critic.variables, critic_model.variables, tau)
 
-        prev_state = state
+            # End this episode when `done` is True
+            if done:
+                break
 
-    ep_reward_list.append(episodic_reward)
+            prev_state = state
 
-    # Mean of last 40 episodes
-    avg_reward = np.mean(ep_reward_list[-40:])
-    print("Episode * {} * Avg Reward is ==> {}".format(ep, avg_reward))
-    avg_reward_list.append(avg_reward)
+        ep_reward_list.append(episodic_reward)
 
-# Plotting graph
-# Episodes versus Avg. Rewards
-plt.plot(avg_reward_list)
-plt.xlabel("Episode")
-plt.ylabel("Avg. Epsiodic Reward")
-plt.show()
+        # Mean of last 40 episodes
+        avg_reward = np.mean(ep_reward_list[-40:])
+        print("Episode * {} * Avg Reward is ==> {}".format(ep, avg_reward))
+        avg_reward_list.append(avg_reward)
 
-# Save the weights
-actor_model.save_weights("pendulum_actor.h5")
-critic_model.save_weights("pendulum_critic.h5")
+        avg_losses_list.append(np.mean(losses))
 
-target_actor.save_weights("pendulum_target_actor.h5")
-target_critic.save_weights("pendulum_target_critic.h5")
+    # Plotting graph
+    # Episodes versus Avg. Rewards
+    plt.plot(avg_reward_list)
+    plt.plot(avg_losses_list)
+    plt.legend(['reward','loss'])
+    plt.xlabel("Episode")
+    plt.ylabel("Avg. Epsiodic Reward")
+    plt.show()
 
+    # Save the weights
+    actor_model.save_weights("pendulum_actor.h5")
+    critic_model.save_weights("pendulum_critic.h5")
+
+    # target_actor.save_weights("pendulum_target_actor.h5")
+    # target_critic.save_weights("pendulum_target_critic.h5")
+else:
+    actor_model.load_weights("pendulum_actor.h5")
+    critic_model.load_weights("pendulum_critic.h5")
+
+    # target_actor.load_weights("pendulum_target_actor.h5")
+    # target_critic.load_weights("pendulum_target_critic.h5")
+
+
+eval_steps = 0
+for _ in range(5):
+    ev_state = env.reset()
+    ev_done = False
+    while ev_done == False:
+        env.render()
+        ev_state = tf.expand_dims(ev_state, 0)
+        ev_action = actor_model(ev_state)
+        ev_action = ev_action.numpy()
+        ev_action = np.clip(ev_action, lower_bound, upper_bound)
+        ev_state, ev_reward, ev_done, ev_info = env.step(ev_action)
+        eval_steps += 1
