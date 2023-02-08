@@ -178,14 +178,6 @@ class PositionalEmbedding(tf.keras.layers.Layer):
     x = x + self.pos_encoding[tf.newaxis, :length, :]
     return x
 
-#embed_pt = PositionalEmbedding(vocab_size=tokenizers.pt.get_vocab_size(), d_model=512)
-#embed_en = PositionalEmbedding(vocab_size=tokenizers.en.get_vocab_size(), d_model=512)
-#
-#pt_emb = embed_pt(pt)
-#en_emb = embed_en(en)
-#
-#en_emb._keras_mask
-
 
 class BaseAttention(tf.keras.layers.Layer):
   def __init__(self, **kwargs):
@@ -565,8 +557,33 @@ split_at = len(input_tensor) - len(input_tensor) // 10
 input_tensor_train,  input_tensor_val  = (input_tensor[:split_at], input_tensor[split_at:])
 target_tensor_train, target_tensor_val = (target_tensor[:split_at],target_tensor[split_at:])
 
+label_tensor_train  = input_tensor[:split_at]
+lebel_len,lebel_words = label_tensor_train.shape
+label_tensor_train  = label_tensor_train[:,:lebel_words-1]
+filler = np.zeros(lebel_len,dtype=label_tensor_train.dtype).reshape(lebel_len,1)
+label_tensor_train  = np.append(label_tensor_train,filler,axis=1)
+
+
 # Show length
-print(len(input_tensor_train), len(target_tensor_train), len(input_tensor_val), len(target_tensor_val))
+print('input=',input_tensor_train.shape)
+print('target=',target_tensor_train.shape)
+print('label=',label_tensor_train.shape)
+print('val_input=',input_tensor_val.shape)
+print('val_target=', target_tensor_val.shape)
+
+
+
+##### Test PositionalEmbedding
+#embed_pt = PositionalEmbedding(vocab_size=input_vocab_size, d_model=512)
+#embed_en = PositionalEmbedding(vocab_size=target_vocab_size, d_model=512)
+##
+#pt_emb = embed_pt(input_tensor_train)
+#en_emb = embed_en(target_tensor_train)
+##
+#print(en_emb._keras_mask)
+#
+#exit()
+
 
 #print ("Input Language; index to word mapping")
 #convert(inp_lang, input_tensor_train[0])
@@ -635,7 +652,7 @@ transformer.compile(
 #
 ##exit()
 
-transformer.fit((input_tensor_train,target_tensor_train),
+transformer.fit((input_tensor_train,target_tensor_train),label_tensor_train,
                 epochs=EPOCHS,
                 validation_data=(input_tensor_val,target_tensor_val))
 
