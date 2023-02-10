@@ -620,16 +620,15 @@ split_at = len(input_tensor) - len(input_tensor) // 10
 input_tensor_train,  input_tensor_val  = (input_tensor[:split_at], input_tensor[split_at:])
 target_tensor_train, target_tensor_val = (target_tensor[:split_at],target_tensor[split_at:])
 
-def make_labels(data_tensor,split_at):
-  label_tensor  = data_tensor[:split_at]
+def make_labels(label_tensor):
   lebel_len,lebel_words = label_tensor.shape
-  label_tensor  = label_tensor[:,:lebel_words-1]
+  label_tensor  = label_tensor[:,1:lebel_words]
   filler = np.zeros(lebel_len,dtype=label_tensor.dtype).reshape(lebel_len,1)
   label_tensor  = np.append(label_tensor,filler,axis=1)
   return label_tensor
 
-label_tensor_train = make_labels(target_tensor_train,split_at)
-label_tensor_val   = make_labels(target_tensor_val,split_at)
+label_tensor_train = make_labels(target_tensor_train)
+label_tensor_val   = make_labels(target_tensor_val)
 
 
 # Show length
@@ -639,7 +638,9 @@ print('label=',label_tensor_train.shape)
 print('val_input=',input_tensor_val.shape)
 print('val_target=', target_tensor_val.shape)
 
-
+print('input=',input_tensor_train[10])
+print('target=',target_tensor_train[10])
+print('label=',label_tensor_train[10])
 
 ##### Test PositionalEmbedding
 #embed_pt = PositionalEmbedding(vocab_size=input_vocab_size, d_model=512)
