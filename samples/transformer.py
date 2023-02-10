@@ -406,6 +406,68 @@ class Transformer(tf.keras.Model):
     # Return the final output and the attention weights.
     return logits
 
+class Translator(tf.Module):
+  def __init__(self, transformer,
+      max_out_length=None, start_voc_id=None, end_voc_id=None):
+    #self.tokenizers = tokenizers
+    self.transformer = transformer
+    self.max_out_length = max_out_length
+    self.start_voc_id = start_voc_id
+    self.end_voc_id = end_voc_id
+
+  def __call__(self, sentence):
+    # The input sentence is Portuguese, hence adding the `[START]` and `[END]` tokens.
+    assert isinstance(sentence, tf.Tensor)
+    #if len(sentence.shape) == 0:
+    #  sentence = sentence[tf.newaxis]
+    #
+    #sentence = self.tokenizers.pt.tokenize(sentence).to_tensor()
+
+    encoder_input = tf.expand_dims(sentence,axis=0)
+
+    # As the output language is English, initialize the output with the
+    # English `[START]` token.
+    #start_end = self.tokenizers.en.tokenize([''])[0]
+    #start = start_end[0][tf.newaxis]
+    #end = start_end[1][tf.newaxis]
+    start = tf.constant([self.start_voc_id],dtype=tf.int64)
+    end = tf.constant([self.end_voc_id],dtype=tf.int64)
+
+    # `tf.TensorArray` is required here (instead of a Python list), so that the
+    # dynamic-loop can be traced by `tf.function`.
+    output_array = tf.TensorArray(dtype=tf.int64, size=0, dynamic_size=True)
+    output_array = output_array.write(0, start)
+
+    for i in tf.range(self.max_out_length):
+      output = tf.transpose(output_array.stack())
+      predictions = self.transformer([encoder_input, output], training=False)
+
+      # Select the last token from the `seq_len` dimension.
+      predictions = predictions[:, -1:, :]  # Shape `(batch_size, 1, vocab_size)`.
+
+      predicted_id = tf.argmax(predictions, axis=-1)
+
+      # Concatenate the `predicted_id` to the output which is given to the
+      # decoder as its input.
+      output_array = output_array.write(i+1, predicted_id[0])
+
+      if predicted_id == end:
+        break
+
+    output = tf.transpose(output_array.stack())
+    # The output shape is `(1, tokens)`.
+    #text = tokenizers.en.detokenize(output)[0]  # Shape: `()`.
+
+    #tokens = tokenizers.en.lookup(output)[0]
+
+    # `tf.function` prevents us from using the attention_weights that were
+    # calculated on the last iteration of the loop.
+    # So, recalculate them outside the loop.
+    #self.transformer([encoder_input, output[:,:-1]], training=False)
+    #attention_weights = self.transformer.decoder.last_attn_scores
+
+    #return text, tokens, attention_weights
+    return output
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
   def __init__(self, d_model, warmup_steps=4000):
@@ -430,6 +492,7 @@ def masked_loss(label, pred):
   mask = label != 0
   loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction='none')
+  
   loss = loss_object(label, pred)
 
   mask = tf.cast(mask, dtype=loss.dtype)
@@ -557,11 +620,16 @@ split_at = len(input_tensor) - len(input_tensor) // 10
 input_tensor_train,  input_tensor_val  = (input_tensor[:split_at], input_tensor[split_at:])
 target_tensor_train, target_tensor_val = (target_tensor[:split_at],target_tensor[split_at:])
 
-label_tensor_train  = input_tensor[:split_at]
-lebel_len,lebel_words = label_tensor_train.shape
-label_tensor_train  = label_tensor_train[:,:lebel_words-1]
-filler = np.zeros(lebel_len,dtype=label_tensor_train.dtype).reshape(lebel_len,1)
-label_tensor_train  = np.append(label_tensor_train,filler,axis=1)
+def make_labels(data_tensor,split_at):
+  label_tensor  = data_tensor[:split_at]
+  lebel_len,lebel_words = label_tensor.shape
+  label_tensor  = label_tensor[:,:lebel_words-1]
+  filler = np.zeros(lebel_len,dtype=label_tensor.dtype).reshape(lebel_len,1)
+  label_tensor  = np.append(label_tensor,filler,axis=1)
+  return label_tensor
+
+label_tensor_train = make_labels(target_tensor_train,split_at)
+label_tensor_val   = make_labels(target_tensor_val,split_at)
 
 
 # Show length
@@ -654,7 +722,7 @@ transformer.compile(
 
 transformer.fit((input_tensor_train,target_tensor_train),label_tensor_train,
                 epochs=EPOCHS,
-                validation_data=(input_tensor_val,target_tensor_val))
+                validation_data=((input_tensor_val,target_tensor_val),label_tensor_val))
 
 #
 #print("Train model...")
@@ -720,6 +788,30 @@ transformer.fit((input_tensor_train,target_tensor_train),label_tensor_train,
 #    print()
 #    #attention_plot = attention_plot[:len(predicted_sentence.split(' ')), :len(sentence.split(' '))]
 #    seq2seq.plot_attention(attention_plot, sentence.split(' '), predicted_sentence.split(' '))
+
+translator = Translator(
+    transformer,
+    max_out_length=max_length_targ,
+    start_voc_id=targ_lang.word_index['<start>'],
+    end_voc_id=targ_lang.word_index['<end>'],
+)
+
+for i in range(10):
+    idx = np.random.randint(0,len(input_tensor))
+    question = input_tensor[idx]
+    predict = translator(tf.constant(question))
+    predict = predict[0].numpy()
+    answer = target_tensor[idx]
+    sentence = inp_lang.sequences_to_texts([question])[0]
+    predicted_sentence = targ_lang.sequences_to_texts([predict])[0]
+    target_sentence = targ_lang.sequences_to_texts([answer])[0]
+    print('Input:',sentence)
+    print('Predict:',predicted_sentence)
+    print('Target:',target_sentence)
+    print()
+    #attention_plot = attention_plot[:len(predicted_sentence.split(' ')), :len(sentence.split(' '))]
+    #seq2seq.plot_attention(attention_plot, sentence.split(' '), predicted_sentence.split(' '))
+
 
 #plt.plot(history.history['loss'],label='loss')
 #plt.plot(history.history['accuracy'],label='accuracy')
