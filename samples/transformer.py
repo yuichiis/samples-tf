@@ -58,7 +58,7 @@ class EngFraDataset:
         num_words=num_words, filters='')
         lang_tokenizer.fit_on_texts(lang)
         tensor = lang_tokenizer.texts_to_sequences(lang)
-        tensor = tf.keras.preprocessing.sequence.pad_sequences(tensor,
+        tensor = tf.keras.utils.pad_sequences(tensor,
                                                          padding='post')
         return tensor, lang_tokenizer
 
@@ -463,11 +463,11 @@ class Translator(tf.Module):
     # `tf.function` prevents us from using the attention_weights that were
     # calculated on the last iteration of the loop.
     # So, recalculate them outside the loop.
-    #self.transformer([encoder_input, output[:,:-1]], training=False)
-    #attention_weights = self.transformer.decoder.last_attn_scores
+    self.transformer([encoder_input, output[:,:-1]], training=False)
+    attention_weights = self.transformer.decoder.last_attn_scores
 
     #return text, tokens, attention_weights
-    return output
+    return output,attention_weights
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
   def __init__(self, d_model, warmup_steps=4000):
@@ -485,7 +485,41 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
     return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
 
+def plot_attention_head(in_tokens, translated_tokens, attention):
+  # The model didn't generate `<START>` in the output. Skip it.
+  translated_tokens = translated_tokens[1:]
 
+  ax = plt.gca()
+  ax.matshow(attention)
+  ax.set_xticks(range(len(in_tokens)))
+  ax.set_yticks(range(len(translated_tokens)))
+
+  #labels = [label.decode('utf-8') for label in in_tokens]
+  labels = in_tokens
+  ax.set_xticklabels(
+      labels, rotation=90)
+
+  #labels = [label.decode('utf-8') for label in translated_tokens]
+  labels = translated_tokens
+  ax.set_yticklabels(labels)
+
+def plot_attention_weights(sentence, translated_tokens, attention_heads):
+  #in_tokens = tf.convert_to_tensor([sentence])
+  #in_tokens = tokenizers.pt.tokenize(in_tokens).to_tensor()
+  #in_tokens = tokenizers.pt.lookup(in_tokens)[0]
+  in_tokens = sentence
+
+  fig = plt.figure(figsize=(16, 8))
+
+  for h, head in enumerate(attention_heads):
+    ax = fig.add_subplot(2, 4, h+1)
+
+    plot_attention_head(in_tokens, translated_tokens, head)
+
+    ax.set_xlabel(f'Head {h+1}')
+
+  plt.tight_layout()
+  plt.show()
 
 
 def masked_loss(label, pred):
@@ -800,7 +834,7 @@ translator = Translator(
 for i in range(10):
     idx = np.random.randint(0,len(input_tensor))
     question = input_tensor[idx]
-    predict = translator(tf.constant(question))
+    predict,attention_plot = translator(tf.constant(question))
     predict = predict[0].numpy()
     answer = target_tensor[idx]
     sentence = inp_lang.sequences_to_texts([question])[0]
@@ -809,9 +843,13 @@ for i in range(10):
     print('Input:',sentence)
     print('Predict:',predicted_sentence)
     print('Target:',target_sentence)
-    print()
-    #attention_plot = attention_plot[:len(predicted_sentence.split(' ')), :len(sentence.split(' '))]
-    #seq2seq.plot_attention(attention_plot, sentence.split(' '), predicted_sentence.split(' '))
+    print(' ')
+    
+    sentence = sentence.split(' ')
+    predicted_sentence = predicted_sentence.split(' ')
+    attention_plot = tf.squeeze(attention_plot,0)
+    attention_plot = attention_plot[:,:len(predicted_sentence), :len(sentence)]
+    plot_attention_weights(sentence, predicted_sentence, attention_plot)
 
 
 #plt.plot(history.history['loss'],label='loss')
