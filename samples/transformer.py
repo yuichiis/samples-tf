@@ -87,21 +87,6 @@ class EngFraDataset:
             if t!=0:
                 print ("%d ----> %s" % (t, lang.index_word[t]))
 
-    #def seq2str(self,sequence,lang):
-    #    result = ''
-    #    for word_id in sequence:
-    #        if word_id == 0:
-    #            break
-    #        else:
-    #            word = lang.index_word[word_id]
-    #            if result=='':
-    #                result = word
-    #            else:
-    #                result = result+' '+word
-    #            if word == '<end>':
-    #                return result
-    #    return result
-
     def seq2str(self,sequence,lang):
         result = ''
         for word_id in sequence:
@@ -130,34 +115,6 @@ def positional_encoding(length, depth):
       axis=-1) 
 
   return tf.cast(pos_encoding, dtype=tf.float32)
-
-#pos_encoding = positional_encoding(length=2048, depth=512)
-
-# Check the shape.
-#print(pos_encoding.shape)
-
-# Plot the dimensions.
-#plt.pcolormesh(pos_encoding.numpy().T, cmap='RdBu')
-#plt.ylabel('Depth')
-#plt.xlabel('Position')
-#plt.colorbar()
-#plt.show()
-
-
-#pos_encoding/=tf.norm(pos_encoding, axis=1, keepdims=True)
-#p = pos_encoding[1000]
-#dots = tf.einsum('pd,d -> p', pos_encoding, p)
-#plt.subplot(2,1,1)
-#plt.plot(dots)
-#plt.ylim([0,1])
-#plt.plot([950, 950, float('nan'), 1050, 1050],
-#         [0,1,float('nan'),0,1], color='k', label='Zoom')
-#plt.legend()
-#plt.subplot(2,1,2)
-#plt.plot(dots)
-#plt.xlim([950, 1050])
-#plt.ylim([0,1])
-#plt.show()
 
 
 class PositionalEmbedding(tf.keras.layers.Layer):
@@ -550,82 +507,21 @@ def masked_accuracy(label, pred):
   return tf.reduce_sum(match)/tf.reduce_sum(mask)
 
 
-#def train_step(inp, targ, enc_hidden):
-#  loss = 0
-#
-#  with tf.GradientTape() as tape:
-#    enc_output, enc_hidden = encoder(inp, enc_hidden)
-#
-#    dec_hidden = enc_hidden
-#
-#    dec_input = tf.expand_dims([targ_lang.word_index['<start>']] * BATCH_SIZE, 1)
-#
-#    # Teacher forcing - feeding the target as the next input
-#    for t in range(1, targ.shape[1]):
-#      # passing enc_output to the decoder
-#      predictions, dec_hidden, _ = decoder(dec_input, dec_hidden, enc_output)
-#
-#      loss += loss_function(targ[:, t], predictions)
-#
-#      # using teacher forcing
-#      dec_input = tf.expand_dims(targ[:, t], 1)
-#
-#  batch_loss = (loss / int(targ.shape[1]))
-#
-#  variables = encoder.trainable_variables + decoder.trainable_variables
-#
-#  gradients = tape.gradient(loss, variables)
-#
-#  optimizer.apply_gradients(zip(gradients, variables))
-#
-#  return batch_loss
 
-#EPOCHS = 10
-
-#for epoch in range(EPOCHS):
-#  start = time.time()
-#
-#  enc_hidden = encoder.initialize_hidden_state()
-#  total_loss = 0
-#
-#  for (batch, (inp, targ)) in enumerate(dataset.take(steps_per_epoch)):
-#    batch_loss = train_step(inp, targ, enc_hidden)
-#    total_loss += batch_loss
-#
-#    if batch % 100 == 0:
-#      print('Epoch {} Batch {} Loss {:.4f}'.format(epoch + 1,
-#                                                   batch,
-#                                                   batch_loss.numpy()))
-#  # saving (checkpoint) the model every 2 epochs
-#  if (epoch + 1) % 2 == 0:
-#    checkpoint.save(file_prefix = checkpoint_prefix)
-#
-#  print('Epoch {} Loss {:.4f}'.format(epoch + 1,
-#                                      total_loss / steps_per_epoch))
-#  print('Time taken for 1 epoch {} sec\n'.format(time.time() - start))
-
-#en_sentence = u"May I borrow this book?"
-#sp_sentence = u"¿Puedo tomar prestado este libro?"
-#print(preprocess_sentence(en_sentence))
-#print(preprocess_sentence(sp_sentence).encode('utf-8'))
-
-#en, sp = create_dataset(path_to_file, None)
-#print(en[-1])
-#print(sp[-1])
-#print('en=',len(en))
-#print('sp=',len(sp))
-
+#################################################################
+#  Parameters
+#################################################################
 
 num_layers = 4
 d_model = 128 # embedding_dim
-dff = 512
+dff = 512 # units
 num_heads = 8
 dropout_rate = 0.1
 
 num_examples = 5000 #10000 #30000
 num_words = None #128
 EPOCHS = 10
-#BATCH_SIZE = 64
+BATCH_SIZE = 64
 #embedding_dim = 256
 #units = 1024
 
@@ -666,52 +562,32 @@ label_tensor_val   = make_labels(target_tensor_val)
 
 
 # Show length
-print('input=',input_tensor_train.shape)
-print('target=',target_tensor_train.shape)
-print('label=',label_tensor_train.shape)
-print('val_input=',input_tensor_val.shape)
-print('val_target=', target_tensor_val.shape)
-
-print('input=',input_tensor_train[10])
-print('target=',target_tensor_train[10])
-print('label=',label_tensor_train[10])
-
-##### Test PositionalEmbedding
-#embed_pt = PositionalEmbedding(vocab_size=input_vocab_size, d_model=512)
-#embed_en = PositionalEmbedding(vocab_size=target_vocab_size, d_model=512)
-##
-#pt_emb = embed_pt(input_tensor_train)
-#en_emb = embed_en(target_tensor_train)
-##
-#print(en_emb._keras_mask)
+#print('input=',input_tensor_train.shape)
+#print('target=',target_tensor_train.shape)
+#print('label=',label_tensor_train.shape)
+#print('val_input=',input_tensor_val.shape)
+#print('val_target=', target_tensor_val.shape)
 #
-#exit()
+#print('input=',input_tensor_train[10])
+#print('target=',target_tensor_train[10])
+#print('label=',label_tensor_train[10])
 
-
-#print ("Input Language; index to word mapping")
-#convert(inp_lang, input_tensor_train[0])
-#print ()
-#print ("Target Language; index to word mapping")
-#convert(targ_lang, target_tensor_train[0])
-
-#BUFFER_SIZE = len(input_tensor_train)
-#steps_per_epoch = len(input_tensor_train)//BATCH_SIZE
-#print("num_examples:",num_examples)
-#print('num_words:',num_words)
-#print("epoch:",EPOCHS)
-#print("batch_size:",BATCH_SIZE)
-#print("embedding_dim:",embedding_dim)
-#print("units: ",units)
-#print("Input  length:",max_length_inp)
-#print("Target length:",max_length_targ)
-#print("Input  word dictionary: %d(%d)" % (input_vocab_size,len(inp_lang.index_word)+1))
-#print("Target word dictionary: %d(%d)" % (target_vocab_size,len(targ_lang.index_word)+1))
-
-#example_dataset = tf.data.Dataset.from_tensor_slices((input_tensor_train, target_tensor_train)).shuffle(BUFFER_SIZE)
-#example_dataset = example_dataset.batch(BATCH_SIZE, drop_remainder=True)
-#
-#example_input_batch, example_target_batch = next(iter(example_dataset))
-#example_input_batch.shape, example_target_batch.shape
+BUFFER_SIZE = len(input_tensor_train)
+steps_per_epoch = len(input_tensor_train)//BATCH_SIZE
+print("num_examples:",num_examples)
+print('num_words:',num_words)
+print("epoch:",EPOCHS)
+print("batch_size:",BATCH_SIZE)
+print("embedding_dim:",d_model)
+print("layers: ",num_layers)
+print("units: ",dff)
+print("heads: ",num_heads)
+print("dropout_rate: ",dropout_rate)
+print("Input  length:",max_length_inp)
+print("Target length:",max_length_targ)
+print("Input  word dictionary: %d(%d)" % (input_vocab_size,len(inp_lang.index_word)+1))
+print("Target word dictionary: %d(%d)" % (target_vocab_size,len(targ_lang.index_word)+1))
+print(" ")
 
 learning_rate = CustomSchedule(d_model)
 optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98,
@@ -727,102 +603,17 @@ transformer = Transformer(
     target_vocab_size=target_vocab_size,
     dropout_rate=dropout_rate)
 
-#seq2seq = Seq2seq(
-#    input_length=max_length_inp,
-#    input_vocab_size=input_vocab_size,
-#    output_length=max_length_targ,
-#    target_vocab_size=target_vocab_size,
-#    embedding_dim=embedding_dim,
-#    units=units,
-#    start_voc_id=targ_lang.word_index['<start>'],
-#    end_voc_id=targ_lang.word_index['<end>'],
-#)
-
-
 print("Compile model...")
 transformer.compile(
     loss=masked_loss,
     optimizer=optimizer,
     metrics=[masked_accuracy])
 
-#seq2seq.compile(
-#    #loss='sparse_categorical_crossentropy',
-#    #loss=tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True),
-#    loss=loss_function,
-#    optimizer='adam',
-#    metrics=['accuracy'],
-#    )
-#
-##exit()
-
-transformer.fit((input_tensor_train,target_tensor_train),label_tensor_train,
-                epochs=EPOCHS,
+print("Train model...")
+history = transformer.fit((input_tensor_train,target_tensor_train),label_tensor_train,
+                epochs=EPOCHS,batch_size=BATCH_SIZE,
                 validation_data=((input_tensor_val,target_tensor_val),label_tensor_val))
 
-#
-#print("Train model...")
-#history = seq2seq.fit(
-#    input_tensor_train,
-#    target_tensor_train,
-#    batch_size=BATCH_SIZE,
-#    epochs=EPOCHS,
-#    validation_data=(input_tensor_val,target_tensor_val),
-#    #callbacks=[model_checkpoint_callback],
-#)
-
-#seq2seq.load_weights(checkpoint_dir)
-
-# restoring the latest checkpoint in checkpoint_dir
-#checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
-#print(sp[num_examples-1])
-#print(en[num_examples-1])
-#print(sp[num_examples-10])
-#print(en[num_examples-10])
-#print(sp[num_examples-100])
-#print(en[num_examples-100])
-#seq2seq.translate(u'el cogio el telefono.',dataset)
-#print('correct: he hung up.')
-#seq2seq.translate(u'confien.',dataset)
-#print('correct: have faith.')
-#seq2seq.translate(u'llega a tiempo.',dataset)
-#print('correct: be on time.')
-
-#translate(u'hace mucho frio aqui.')
-#translate(u'esta es mi vida.')
-#translate(u'¿todavia estan en casa?')
-# wrong translation
-#translate(u'trata de averiguarlo.')
-#for i in range(10):
-#    idx = np.random.randint(0,len(input_tensor))
-#    question = input_tensor[idx]
-#    #input = question.reshape(1,max_length_inp)
-#    #input = keras.utils.to_categorical(
-#    #    input.reshape(input.size,),
-#    #    num_classes=len(input_voc)
-#    #    ).reshape(input.shape[0],input.shape[1],len(input_voc))
-#
-#    #predict = model.predict(input)
-#    #predict_seq = np.argmax(predict[0].reshape(output_length,len(target_dic)),axis=1)
-#    sentence = dataset.seq2str(question,inp_lang)
-#    predict_seq = seq2seq.translate(sentence, dataset);
-#    answer = target_tensor[idx]
-#    sentence = dataset.seq2str(answer,targ_lang)
-#    print('Target: %s' % (sentence))
-#    print()
-#for i in range(10):
-#    idx = np.random.randint(0,len(input_tensor))
-#    question = input_tensor[idx]
-#    predict, attention_plot = seq2seq.evaluate_sequence([question])
-#    answer = target_tensor[idx]
-#    sentence = inp_lang.sequences_to_texts([question])[0]
-#    predicted_sentence = targ_lang.sequences_to_texts([predict])[0]
-#    target_sentence = targ_lang.sequences_to_texts([answer])[0]
-#    print('Input:',sentence)
-#    print('Predict:',predicted_sentence)
-#    print('Target:',target_sentence)
-#    print()
-#    #attention_plot = attention_plot[:len(predicted_sentence.split(' ')), :len(sentence.split(' '))]
-#    seq2seq.plot_attention(attention_plot, sentence.split(' '), predicted_sentence.split(' '))
 
 translator = Translator(
     transformer,
@@ -852,9 +643,9 @@ for i in range(10):
     plot_attention_weights(sentence, predicted_sentence, attention_plot)
 
 
-#plt.plot(history.history['loss'],label='loss')
-#plt.plot(history.history['accuracy'],label='accuracy')
-#plt.plot(history.history['val_loss'],label='val_loss')
-#plt.plot(history.history['val_accuracy'],label='val_accuracy')
-#plt.legend()
-#plt.show()
+plt.plot(history.history['loss'],label='loss')
+plt.plot(history.history['accuracy'],label='accuracy')
+plt.plot(history.history['val_loss'],label='val_loss')
+plt.plot(history.history['val_accuracy'],label='val_accuracy')
+plt.legend()
+plt.show()
