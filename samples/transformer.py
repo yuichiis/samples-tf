@@ -519,7 +519,7 @@ num_heads = 8
 dropout_rate = 0.1
 
 num_examples = 5000 #10000 #30000
-num_words = None #128
+num_words = None #None #128
 EPOCHS = 10
 BATCH_SIZE = 64
 #embedding_dim = 256
@@ -614,6 +614,12 @@ history = transformer.fit((input_tensor_train,target_tensor_train),label_tensor_
                 epochs=EPOCHS,batch_size=BATCH_SIZE,
                 validation_data=((input_tensor_val,target_tensor_val),label_tensor_val))
 
+plt.plot(history.history['loss'],label='loss')
+plt.plot(history.history['masked_accuracy'],label='accuracy')
+plt.plot(history.history['val_loss'],label='val_loss')
+plt.plot(history.history['val_masked_accuracy'],label='val_accuracy')
+plt.legend()
+plt.show()
 
 translator = Translator(
     transformer,
@@ -642,10 +648,3 @@ for i in range(10):
     attention_plot = attention_plot[:,:len(predicted_sentence), :len(sentence)]
     plot_attention_weights(sentence, predicted_sentence, attention_plot)
 
-
-plt.plot(history.history['loss'],label='loss')
-plt.plot(history.history['accuracy'],label='accuracy')
-plt.plot(history.history['val_loss'],label='val_loss')
-plt.plot(history.history['val_accuracy'],label='val_accuracy')
-plt.legend()
-plt.show()
