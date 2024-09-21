@@ -104,17 +104,17 @@ class EngFraDataset:
 def positional_encoding(length, depth):
   depth = depth/2
 
-  positions = np.arange(length)[:, np.newaxis]     # (seq, 1)
-  depths = np.arange(depth)[np.newaxis, :]/depth   # (1, depth)
+  positions = np.arange(length)[:, np.newaxis]    # (seq, 1)
+  depths = np.arange(depth)[np.newaxis, :]/depth  # (1, depth/2)
 
-  angle_rates = 1 / (10000**depths)         # (1, depth)
-  angle_rads = positions * angle_rates      # (pos, depth)
+  angle_rates = 1 / (10000**depths)               # (1, depth/2)
+  angle_rads = positions * angle_rates            # (length, depth/2)
 
-  pos_encoding = np.concatenate(
+  pos_encoding = np.concatenate(                  # (length, depth/2*2)
       [np.sin(angle_rads), np.cos(angle_rads)],
       axis=-1) 
 
-  return tf.cast(pos_encoding, dtype=tf.float32)
+  return tf.cast(pos_encoding, dtype=tf.float32)  # (length, depth)
 
 
 class PositionalEmbedding(tf.keras.layers.Layer):
@@ -518,8 +518,8 @@ dff = 512 # units
 num_heads = 8
 dropout_rate = 0.1
 
-num_examples = 5000 #10000 #30000
-num_words = None #None #128
+num_examples = 20000 #30000 #5000 #10000
+num_words = 1024 #None #128
 EPOCHS = 10
 BATCH_SIZE = 64
 #embedding_dim = 256
