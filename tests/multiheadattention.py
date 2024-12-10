@@ -19,6 +19,14 @@ mha = tf.keras.layers.MultiHeadAttention(
 query = tf.Variable(tf.ones(full_query_shape))  # (batch_size, context_len, d_model)
 value = tf.Variable(tf.ones(full_value_shape))
 #key = tf.Variable(tf.ones([8,32,128]))
+#query = tf.Variable(
+#    1.0 + 0.0625*tf.reshape(tf.range(0, reduce(mul, full_query_shape), dtype=tf.float32),full_query_shape)
+#)
+#value = tf.Variable(
+#    1.0 + 0.04*tf.reshape(tf.range(0, reduce(mul, full_query_shape), dtype=tf.float32),full_query_shape)
+#)
+#print('query:',query)
+#print('value:',value)
 
 
 #    def call(
@@ -43,17 +51,19 @@ with tf.GradientTape() as tape:
         return_attention_scores=True,
         #use_causal_mask=True,
     )
-    outputs =  outputs * alp
+    results =  outputs * alp
 
-print('outputs:',outputs)
+#print('outputs:',outputs)
 #print(outputs.shape)
-#print(scores)
+#print('scores:',scores)
 #print(scores.shape)
 
-grads = tape.gradient(outputs,[query,value])
+#grads = tape.gradient(outputs,[query,value])
+grads = tape.gradient(results,[query,value])
 d_query = grads[0]
 d_value = grads[1]
+#print('query:', query)
 print('d_query:',d_query)
-print(d_query.shape)
-print('d_value:',d_value)
-print(d_value.shape)
+#print(d_query.shape)
+#print('d_value:',d_value)
+#print(d_value.shape)
