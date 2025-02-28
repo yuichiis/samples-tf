@@ -4,6 +4,14 @@ input_tensor = tf.constant([
     [1, 2, 0, 4, 0],
     [1, 2, 0, 4, 0],
 ])
+input_tensor1 = tf.constant([
+    [1, 2, 0, 4, 5, 0],
+    [1, 2, 0, 4, 5, 0],
+])
+input_tensor2 = tf.constant([
+    [1, 0, 3, 0, 0, 6],
+    [1, 0, 3, 0, 0, 6],
+])
 
 
 class MyCustomLayer(tf.keras.layers.Layer):
@@ -89,16 +97,19 @@ class ApplyMask(tf.keras.layers.Layer):
 
 
 ##############################################################################
-emb = tf.keras.layers.Embedding(10, 4, mask_zero=True, input_length=5)
+emb  = tf.keras.layers.Embedding(10, 4, mask_zero=True,  input_length=5)
+emb1 = tf.keras.layers.Embedding(10, 4, mask_zero=True, input_length=6)
+emb2 = tf.keras.layers.Embedding(10, 4, mask_zero=True, input_length=6)
 customFirst = MyCustomLayer(layername='First')
 customSecond = MyCustomLayer(layername='Second')
 customThird = MyCustomLayer(layername='Third')
 applyMask = ApplyMask(layername='ApplyMask')
 lstm = tf.keras.layers.LSTM(8, return_sequences=True)
 dense = tf.keras.layers.Dense(10)
-mha = tf.keras.layers.MultiHeadAttention(8,8)
+mha = tf.keras.layers.MultiHeadAttention(8,4)
 drop = tf.keras.layers.Dropout(0.5)
 softmax = tf.keras.layers.Softmax()
+add = tf.keras.layers.Add()
 norm = tf.keras.layers.LayerNormalization()
 masking = tf.keras.layers.Masking(mask_value=0)
 
@@ -110,26 +121,38 @@ masking = tf.keras.layers.Masking(mask_value=0)
 #print('softmax has compute_mask :', hasattr(softmax, 'compute_mask'))
 
 x = tf.random.normal((2,5,4),dtype=tf.float32)
+y = tf.random.normal((2,5),dtype=tf.float32)
 mask = tf.cast(input_tensor,tf.bool)
-#x = emb(input_tensor)   # (1,5,4) <= (1,5) 
+mask_y = [[True,True,True,False,False],[True,True,True,False,False]]
+#x = emb(input_tensor)       # (2,5,4) <= (2,5) 
+#x1 = emb1(input_tensor1)   # (2,6,4) <= (2,6) 
+#x2 = emb2(input_tensor2)   # (2,6,4) <= (2,6)
 
-print('x=',x)
+#print('x=',x)
 x = applyMask(x,mask)
+y = applyMask(y,mask_y)
 #x = masking(x)          # (1,5,4) <= (1,5,4) 
-print('x=',x)
-x = customFirst(x)      # (1,5,4) <= (1,5,4)
+#print('x=',x)
+#x = customFirst(x)      # (1,5,4) <= (1,5,4)
+#x1 = customFirst(x1)      # (1,6,4) <= (1,6,4)
+#x2 = customFirst(x2)      # (1,6,4) <= (1,6,4)
 #x = dense(x)
 #x = lstm(x)
+#[x,scores] = mha(x,x1,x2,return_attention_scores=True)
 #x = x * 2
 #x = drop(x)
 #x = softmax(x)
 #x = norm(x)
-x = customSecond(x)     # (1,5,4) <= (1,5,4)
+#x = add([x1,x2])
+x = add([x,y])
+#x = customSecond(x)     # (1,5,4) <= (1,5,4)
+x = customSecond(x)     # (1,6,4) <= (1,6,4)
+#scores = customThird(scores)     # (1,5,4) <= (1,5,4)
 #output = x
 #output = lstm(x)        # (1,5,4) <= (1,5,8)
 #x = customThird(x)      # (1,5,4) <= (1,5,4)
 output = x
 
-print('input',input_tensor)
-print('output',output)
+#print('input',input_tensor)
+#print('output',output)
 #print(output.shape)
