@@ -54,12 +54,21 @@ full_value_shape = [batches]+Tv+[detail]
 #print(tf.einsum('...a,...a->...a',a,b))
 #exit()
 
-query_dense_equation  =  'abc,cde->abde'
-key_dense_equation    =  'abc,cde->abde'
-value_dense_equation  =  'abc,cde->abde'
-dot_product_equation  = 'aecd,abcd->acbe'
-combine_equation      = 'acbe,aecd->abcd'
-output_dense_equation = 'abcd,cde->abe'
+query_dense_equation  = 'abc,cde->abde'     # (B.Tq.Fq),(Fq.H.Dk)->(B.Tq.H.Dk)
+key_dense_equation    = 'abc,cde->abde'     # (B.Tv.Fk),(Fk.H.Dk)->(B.Tv.H.Dk)
+value_dense_equation  = 'abc,cde->abde'     # (B.Tv.Fv),(Fv.H.Dv)->(B.Tv.H.Dv)
+dot_product_equation  = 'aecd,abcd->acbe'   # key(B.Tv.H.Dk),query(B.Tq.H.Dk)->scores(B.H.Tq.Tv) #(key,query->prod_attn)
+combine_equation      = 'acbe,aecd->abcd'   # scores(B.H.Tq.Tv),value(B.Tv.H.Dv)->output(B.Tq.H.Dv)
+output_dense_equation = 'abcd,cde->abe'     # (B.Tq.H.Dv),(H.Dv.Fq)->(B.Tq.Fq)
+
+#shape_a = (2,2)
+#shape_b = (2,2)
+#a = tf.reshape(tf.range(1, 1+reduce(mul, shape_a), dtype=tf.float32),shape_a)
+#b = tf.reshape(tf.range(1, 1+reduce(mul, shape_b), dtype=tf.float32),shape_b)
+#print(a.shape)
+#print(b.shape)
+#print(tf.einsum('ab,ab->ab',a,b))
+#exit()
 
 #query_dense_equation  = 'abcd,def->abcef'
 #key_dense_equation    = 'abcd,def->abcef'
@@ -126,11 +135,20 @@ output_dense = tf.keras.layers.EinsumDense(
     kernel_initializer="ones",
     bias_initializer="zeros",
 )
+def compute_causal_mask(query,value) :
+    #n_attn_axes = len(attention_axes)
+    q_seq_length = tf.shape(query)[1]
+    v_seq_length = q_seq_length if value is None else tf.shape(value)[1]
+    ones_mask = tf.ones((1, q_seq_length, v_seq_length), dtype="int32")
+    row_index = tf.cumsum(ones_mask, axis=-2)
+    col_index = tf.cumsum(ones_mask, axis=-1)
+    return tf.greater_equal(row_index, col_index)
+    
+
 #softmax = tf.keras.layers.Softmax(axis=norm_axes)
 
 alp_q = tf.reshape(tf.range(0, reduce(mul, full_query_shape), dtype=tf.float32),full_query_shape)
 alp_v = tf.reshape(tf.range(0, reduce(mul, full_value_shape), dtype=tf.float32),full_value_shape)
-
 query = tf.Variable((alp_q+1)/reduce(mul, full_query_shape))  # (batch_size, context_len, d_model)
 value = tf.Variable((alp_v+1)/reduce(mul, full_value_shape))  # (batch_size, context_len, d_model)
 #key   = tf.Variable((alp_v+1)/reduce(mul, full_value_shape))  # (batch_size, context_len, d_model)
@@ -176,14 +194,16 @@ with tf.GradientTape() as tape:
 
     print('query_mask',query_mask.shape)
     print('value_mask',value_mask.shape)
-    #auto_mask = tf.expand_dims(query_mask, -1)  # shape is [B, T, 1]
+    auto_mask = tf.expand_dims(query_mask, -1)  # shape is [B, T, 1]
     print('reshaped_query_mask',tf.expand_dims(query_mask, -1).shape)
-    #auto_mask = auto_mask & tf.expand_dims(value_mask, -2)  # shape is [B, T, 1]
-    auto_mask = tf.expand_dims(value_mask, -2)  # shape is [B, T, 1]
+    auto_mask = auto_mask & tf.expand_dims(value_mask, -2)  # shape is [B, T, 1]
+    #auto_mask = tf.expand_dims(value_mask, -2)  # shape is [B, T, 1]
     print('reshaped_value_mask',tf.expand_dims(value_mask, -2).shape)
+    auto_mask = auto_mask & compute_causal_mask(query,value)
     attention_mask = auto_mask
     #print('auto_mask',auto_mask)
     print('auto_mask',auto_mask.shape)
+    
     mask_expansion_axis = -len(attention_axes) * 2 - 1
     print('mask_expansion_axis',mask_expansion_axis)
     for _ in range(
@@ -196,6 +216,7 @@ with tf.GradientTape() as tape:
     print('reshaped_attention_mask',attention_mask.shape)
     #print('norm_axes',norm_axes)
 
+    org_attention_mask = attention_mask
     attention_mask = -1e9*tf.cast(tf.math.logical_not(attention_mask),tf.float32)
     #print('attention_mask',attention_mask)
     masked_attention_scores = attention_scores + attention_mask
@@ -215,6 +236,7 @@ with tf.GradientTape() as tape:
     #softmax_attention_scores = softmax(attention_scores,mask=attention_mask)
     #softmax_attention_scores = softmax(attention_scores)#,mask=attention_mask)
     softmax_attention_scores = tf.reshape(softmax_attention_scores,tuple([batches,num_heads]+Tq+Tv))
+    #softmax_attention_scores = softmax_attention_scores*tf.cast(org_attention_mask,dtype=tf.float32)
 
     attention_scores_dropout = softmax_attention_scores
 
@@ -265,7 +287,7 @@ print('dot_product',dot_product_equation)
 #print('scaled_query:', scaled_query)
 #print('scaled_query:', tf.math.reduce_sum(tf.math.reduce_sum(scaled_query,axis=-1),axis=-1))
 #print('attention_output:',attention_output)
-print('attention_output:',tf.math.reduce_sum(attention_output,axis=-1))
+#print('attention_output:',tf.math.reduce_sum(attention_output,axis=-1))
 #print('attention_scores:',attention_scores)
 #print('attention_scores:',tf.math.reduce_sum(attention_scores,axis=1))
 #print('masked_attention_scores:',masked_attention_scores)
@@ -302,4 +324,4 @@ print('attention_output:',tf.math.reduce_sum(attention_output,axis=-1))
 #print('d_query:', d_query)
 #print('d_value_:', d_value_)
 #print('d_value_:', tf.math.reduce_sum(tf.math.reduce_sum(d_value_,axis=-1),axis=-1))
-#print('d_value:', d_value)
+print('d_value:', d_value)

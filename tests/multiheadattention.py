@@ -6,10 +6,10 @@ num_heads = 8
 key_dim = 4
 batches = 2
 detail = 5
-#Tq = [6]
-#Tv = [7]
-Tq = [3,6]
-Tv = [3,7]
+Tq = [6]
+Tv = [7]
+#Tq = [3,6]
+#Tv = [3,7]
 
 mask_q = tf.constant([
     [True,True,True,False,False,False],
@@ -19,10 +19,10 @@ mask_v = tf.constant([
     [True,True,True,True,False,False,False],
     [True,True,True,True,True,True,False],
 ])
-mask_k = tf.constant([
-    [True,True,True,True,False,False,False],
-    [True,True,True,True,True,True,False],
-])
+#mask_k = tf.constant([
+#    [True,True,True,True,False,False,False],
+#    [True,True,True,True,True,True,False],
+#])
 #mask_q = tf.constant([
 #   [[True,True,True,False,False,False],
 #    [True,True,True,False,False,False],
@@ -82,14 +82,14 @@ class ApplyMask(tf.keras.layers.Layer):
         return inputs
 apply_mask_q = ApplyMask('ApplyMaskQ')
 apply_mask_v = ApplyMask('ApplyMaskV')
-apply_mask_k = ApplyMask('ApplyMaskK')
+#apply_mask_k = ApplyMask('ApplyMaskK')
 
 alp_q = tf.reshape(tf.range(0, reduce(mul, full_query_shape), dtype=tf.float32),full_query_shape)
 alp_v = tf.reshape(tf.range(0, reduce(mul, full_value_shape), dtype=tf.float32),full_value_shape)
 
 query = tf.Variable((alp_q+1)/reduce(mul, full_query_shape))  # (batch_size, context_len, d_model)
 value = tf.Variable((alp_v+1)/reduce(mul, full_value_shape))  # (batch_size, context_len, d_model)
-key = tf.Variable((alp_v+1)/reduce(mul, full_value_shape))  # (batch_size, context_len, d_model)
+#key = tf.Variable((alp_v+1)/reduce(mul, full_value_shape))  # (batch_size, context_len, d_model)
 
 #print(value)
 #query_emb = tf.keras.layers.Embedding(
@@ -133,24 +133,24 @@ key = tf.Variable((alp_v+1)/reduce(mul, full_value_shape))  # (batch_size, conte
 
 print('query:', query.shape)
 print('value:', value.shape)
-print('key:', key.shape)
+#print('key:', key.shape)
 print('mask_q:', mask_q.shape)
 print('mask_v:', mask_v.shape)
-print('mask_k:', mask_k.shape)
+#print('mask_k:', mask_k.shape)
 
 with tf.GradientTape() as tape:
     #query = query_emb(query_seq)
     #value = value_emb(value_seq)
-    #query = apply_mask_q(query,mask=mask_q)
-    #value = apply_mask_q(value,mask=mask_v)
+    query = apply_mask_q(query,mask=mask_q)
+    value = apply_mask_q(value,mask=mask_v)
     #key = apply_mask_q(key,mask=mask_v)
 
     outputs, scores = mha( # output: B,T,E   scores: ?,?,?
         query, value,
-        key,
+        #key,
         return_attention_scores=True,
         training=True,
-        #use_causal_mask=True,
+        use_causal_mask=True,
         #mask=None,
         #query_mask=queryMask,
         #value_mask=valueMask,
@@ -166,16 +166,16 @@ with tf.GradientTape() as tape:
 grads = tape.gradient(results,[
     query,
     value,
-    key,
+    #key,
 ])
 [
     d_query,
     d_value,
-    d_key,
+    #d_key,
 ] = grads
 #print('outputs:',outputs)
 #print('attention_scores:',scores)
-print('attention_scores:',tf.math.reduce_sum(scores,axis=1))
+#print('attention_scores:',tf.math.reduce_sum(scores,axis=1))
 #print('scores0:',scores[0,0,0,:,:,:])
 #print('scores-1:',scores[-1,-1,-1,:,:,:])
 #print('scores0:',scores[:,0,:,:])
@@ -185,7 +185,7 @@ print('attention_scores:',tf.math.reduce_sum(scores,axis=1))
 #print('query:', query)
 #print('d_query:',d_query)
 #print(d_query.shape)
-#print('d_value:',d_value)
+print('d_value:',d_value)
 #print(d_value.shape)
 #print('d_key:',d_key)
 #print(d_key.shape)

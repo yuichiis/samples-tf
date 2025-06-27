@@ -118,10 +118,13 @@ def positional_encoding(length, depth):
 
 
 class PositionalEmbedding(tf.keras.layers.Layer):
-  def __init__(self, vocab_size, d_model):
+  def __init__(self, vocab_size, d_model, kernel_initializer=None):
     super().__init__()
     self.d_model = d_model
-    self.embedding = tf.keras.layers.Embedding(vocab_size, d_model, mask_zero=True) 
+    self.embedding = tf.keras.layers.Embedding(
+        vocab_size, d_model,
+        mask_zero=True,
+        embeddings_initializer=kernel_initializer) 
     self.pos_encoding = positional_encoding(length=2048, depth=d_model)
 
   def compute_mask(self, *args, **kwargs):
@@ -137,10 +140,21 @@ class PositionalEmbedding(tf.keras.layers.Layer):
 
 
 class BaseAttention(tf.keras.layers.Layer):
-  def __init__(self, **kwargs):
+  def __init__(self,
+      kernel_initializer=None,
+      bias_initializer=None,
+      **kwargs
+  ):
     super().__init__()
-    self.mha = tf.keras.layers.MultiHeadAttention(**kwargs)
-    self.layernorm = tf.keras.layers.LayerNormalization()
+    self.mha = tf.keras.layers.MultiHeadAttention(
+      kernel_initializer=kernel_initializer,
+      bias_initializer=bias_initializer,
+       **kwargs
+    )
+    self.layernorm = tf.keras.layers.LayerNormalization(
+       gamma_initializer=kernel_initializer,
+       beta_initializer=bias_initializer,
+    )
     self.add = tf.keras.layers.Add()
 
 class CrossAttention(BaseAttention):
@@ -181,15 +195,32 @@ class CausalSelfAttention(BaseAttention):
     return x
 
 class FeedForward(tf.keras.layers.Layer):
-  def __init__(self, d_model, dff, dropout_rate=0.1):
+  def __init__(self,
+      d_model, dff,
+      #dropout_rate=0.1,
+      kernel_initializer=None,
+      bias_initializer=None,
+  ):
     super().__init__()
     self.seq = tf.keras.Sequential([
-      tf.keras.layers.Dense(dff, activation='relu'),
-      tf.keras.layers.Dense(d_model),
-      tf.keras.layers.Dropout(dropout_rate)
+      tf.keras.layers.Dense(
+          dff,
+          activation='relu',
+          kernel_initializer=kernel_initializer,
+          bias_initializer=bias_initializer,
+      ),
+      tf.keras.layers.Dense(
+          d_model,
+          kernel_initializer=kernel_initializer,
+          bias_initializer=bias_initializer,
+      ),
+      #tf.keras.layers.Dropout(dropout_rate)
     ])
     self.add = tf.keras.layers.Add()
-    self.layer_norm = tf.keras.layers.LayerNormalization()
+    self.layer_norm = tf.keras.layers.LayerNormalization(
+      gamma_initializer=kernel_initializer,
+      beta_initializer=bias_initializer,
+    )
 
   def call(self, x):
     x = self.add([x, self.seq(x)])
@@ -212,15 +243,27 @@ class FeedForward(tf.keras.layers.Layer):
 # The shapes of all the vectors at each step have been specified in the comments in the code:
 
 class EncoderLayer(tf.keras.layers.Layer):
-  def __init__(self,*, d_model, num_heads, dff, dropout_rate=0.1):
+  def __init__(self,*, 
+      d_model, num_heads, dff,
+      #dropout_rate=0.1,
+      kernel_initializer=None,
+      bias_initializer=None,
+  ):
     super().__init__()
 
     self.self_attention = GlobalSelfAttention(
         num_heads=num_heads,
         key_dim=d_model,
-        dropout=dropout_rate)
+        #dropout=dropout_rate,
+        kernel_initializer=kernel_initializer,
+        bias_initializer=bias_initializer,
+    )
 
-    self.ffn = FeedForward(d_model, dff)
+    self.ffn = FeedForward(
+        d_model, dff,
+        kernel_initializer=kernel_initializer,
+        bias_initializer=bias_initializer,
+    )
 
   def call(self, x):
     x = self.self_attention(x)
@@ -228,30 +271,41 @@ class EncoderLayer(tf.keras.layers.Layer):
     return x
 
 class Encoder(tf.keras.layers.Layer):
-  def __init__(self, *, num_layers, d_model, num_heads,
-               dff, vocab_size, dropout_rate=0.1):
+  def __init__(self, *, 
+      num_layers, d_model, num_heads,
+      dff, vocab_size,
+      #dropout_rate=0.1,
+      kernel_initializer=None,
+      bias_initializer=None,
+    ):
     super().__init__()
 
     self.d_model = d_model
     self.num_layers = num_layers
 
     self.pos_embedding = PositionalEmbedding(
-        vocab_size=vocab_size, d_model=d_model)
+        vocab_size=vocab_size,
+        d_model=d_model,
+        kernel_initializer=kernel_initializer,
+    )
 
     self.enc_layers = [
         EncoderLayer(d_model=d_model,
                      num_heads=num_heads,
                      dff=dff,
-                     dropout_rate=dropout_rate)
+                     #dropout_rate=dropout_rate,
+                     kernel_initializer=kernel_initializer,
+                     bias_initializer=bias_initializer,
+        )
         for _ in range(num_layers)]
-    self.dropout = tf.keras.layers.Dropout(dropout_rate)
+    #self.dropout = tf.keras.layers.Dropout(dropout_rate)
 
   def call(self, x):
     # `x` is token-IDs shape: (batch, seq_len)
     x = self.pos_embedding(x)  # Shape `(batch_size, seq_len, d_model)`.
 
     # Add dropout.
-    x = self.dropout(x)
+    #x = self.dropout(x)
 
     for i in range(self.num_layers):
       x = self.enc_layers[i](x)
@@ -263,24 +317,36 @@ class Encoder(tf.keras.layers.Layer):
 
 class DecoderLayer(tf.keras.layers.Layer):
   def __init__(self,
-               *,
-               d_model,
-               num_heads,
-               dff,
-               dropout_rate=0.1):
+      *,
+      d_model,
+      num_heads,
+      dff,
+      #dropout_rate=0.1,
+      kernel_initializer=None,
+      bias_initializer=None,
+  ):
     super(DecoderLayer, self).__init__()
 
     self.causal_self_attention = CausalSelfAttention(
         num_heads=num_heads,
         key_dim=d_model,
-        dropout=dropout_rate)
+        #dropout=dropout_rate,
+        kernel_initializer=kernel_initializer,
+        bias_initializer=bias_initializer,
+    )
 
     self.cross_attention = CrossAttention(
         num_heads=num_heads,
         key_dim=d_model,
-        dropout=dropout_rate)
+        #dropout=dropout_rate,
+        kernel_initializer=kernel_initializer,
+        bias_initializer=bias_initializer,
+    )
 
-    self.ffn = FeedForward(d_model, dff)
+    self.ffn = FeedForward(d_model, dff,
+        kernel_initializer=kernel_initializer,
+        bias_initializer=bias_initializer,
+    )
 
   def call(self, x, context):
     x = self.causal_self_attention(x=x)
@@ -293,19 +359,32 @@ class DecoderLayer(tf.keras.layers.Layer):
     return x
 
 class Decoder(tf.keras.layers.Layer):
-  def __init__(self, *, num_layers, d_model, num_heads, dff, vocab_size,
-               dropout_rate=0.1):
+  def __init__(self, *, 
+      num_layers, d_model, num_heads, dff, vocab_size,
+      #dropout_rate=0.1,
+      kernel_initializer=None,
+      bias_initializer=None,
+  ):
     super(Decoder, self).__init__()
 
     self.d_model = d_model
     self.num_layers = num_layers
 
-    self.pos_embedding = PositionalEmbedding(vocab_size=vocab_size,
-                                             d_model=d_model)
-    self.dropout = tf.keras.layers.Dropout(dropout_rate)
+    self.pos_embedding = PositionalEmbedding(
+        vocab_size=vocab_size,
+        d_model=d_model,
+        kernel_initializer=kernel_initializer,
+    )
+    #self.dropout = tf.keras.layers.Dropout(dropout_rate)
     self.dec_layers = [
-        DecoderLayer(d_model=d_model, num_heads=num_heads,
-                     dff=dff, dropout_rate=dropout_rate)
+        DecoderLayer(
+            d_model=d_model,
+            num_heads=num_heads,
+            dff=dff,
+            #dropout_rate=dropout_rate,
+            kernel_initializer=kernel_initializer,
+            bias_initializer=bias_initializer,
+        )
         for _ in range(num_layers)]
 
     self.last_attn_scores = None
@@ -314,7 +393,7 @@ class Decoder(tf.keras.layers.Layer):
     # `x` is token-IDs shape (batch, target_seq_len)
     x = self.pos_embedding(x)  # (batch_size, target_seq_len, d_model)
 
-    x = self.dropout(x)
+    #x = self.dropout(x)
 
     for i in range(self.num_layers):
       x  = self.dec_layers[i](x, context)
@@ -326,20 +405,35 @@ class Decoder(tf.keras.layers.Layer):
 
 
 class Transformer(tf.keras.Model):
-  def __init__(self, *, num_layers, d_model, num_heads, dff,
-               input_vocab_size, target_vocab_size, dropout_rate=0.1):
+  def __init__(self, *, 
+        num_layers, d_model, num_heads, dff,
+        input_vocab_size, target_vocab_size,
+        #dropout_rate=0.1,
+        kernel_initializer=None,
+        bias_initializer=None,
+  ):
     super().__init__()
     self.encoder = Encoder(num_layers=num_layers, d_model=d_model,
                            num_heads=num_heads, dff=dff,
                            vocab_size=input_vocab_size,
-                           dropout_rate=dropout_rate)
+                           #dropout_rate=dropout_rate,
+                           kernel_initializer=kernel_initializer,
+                           bias_initializer=bias_initializer,
+    )
 
     self.decoder = Decoder(num_layers=num_layers, d_model=d_model,
                            num_heads=num_heads, dff=dff,
                            vocab_size=target_vocab_size,
-                           dropout_rate=dropout_rate)
+                           #dropout_rate=dropout_rate,
+                           kernel_initializer=kernel_initializer,
+                           bias_initializer=bias_initializer,
+    )
 
-    self.final_layer = tf.keras.layers.Dense(target_vocab_size)
+    self.final_layer = tf.keras.layers.Dense(
+        target_vocab_size,
+        kernel_initializer=kernel_initializer,
+        bias_initializer=bias_initializer,
+    )
 
   def call(self, inputs):
     # To use a Keras model with `.fit` you must pass all your inputs in the
@@ -512,11 +606,11 @@ def masked_accuracy(label, pred):
 #  Parameters
 #################################################################
 
-num_layers = 4
-d_model = 128 # embedding_dim
-dff = 512 # units
-num_heads = 8
-dropout_rate = 0.1
+num_layers = 1#4#6
+d_model = 4#128#512 # embedding_dim
+dff = 4#512 # units
+num_heads = 2#8
+dropout_rate = 0.1#0.1
 
 num_examples = 20000 #30000 #5000 #10000
 num_words = 1024 #None #128
@@ -527,8 +621,112 @@ BATCH_SIZE = 64
 
 
 
+from functools import reduce
+from operator import mul
+vocab_size = 16
+d_model = 4
+context_len = 3
+input_vocab_size = vocab_size
+target_vocab_size = vocab_size
+shape = [1,context_len]
+v_shape = [1,context_len, d_model]
+inp = tf.ones(shape, dtype=tf.int32)
+inp = tf.reshape(tf.range(1, 1+reduce(mul, shape), dtype=tf.int32),shape)
+targ = tf.reshape(tf.range(1, 1+reduce(mul, shape), dtype=tf.int32),shape)
+inp_seq = tf.Variable(inp)  # (batch_size, context_len, d_model)
+targ_seq = tf.Variable(targ)  # (batch_size, context_len, d_model)
+inp_vec = tf.reshape(tf.range(1, 1+reduce(mul, v_shape), dtype=tf.float32),v_shape)
+
+#posEmb = PositionalEmbedding(vocab_size, d_model, kernel_initializer='ones')
+#x = posEmb(inp_seq)
+#print(x)
+
+transformer = Transformer(
+    num_layers=num_layers,
+    d_model=d_model,
+    num_heads=num_heads,
+    dff=dff,
+    input_vocab_size=input_vocab_size,
+    target_vocab_size=target_vocab_size,
+    #dropout_rate=dropout_rate,
+    kernel_initializer='ones',
+    bias_initializer='zeros',
+)
+#predict = transformer([inp_seq, targ_seq], training=True)
+#with tf.GradientTape() as tape:
+#  predict = transformer([inp_seq, targ_seq], training=True)
+#print(predict)
+#params = transformer.trainable_variables
+#grads = tape.gradient(predict,params)
+#print(len(grads))
+#for i,(param,grad) in enumerate(zip(params,grads)):
+#   print(i,':',param.name[-16:],':',grad)
+
+input_tensor_train = np.array([
+    [10,2,3,4,11,0,0,0,],
+    [10,4,3,2,1,11,0,0,],
+])
+target_tensor_train = np.array([
+    [10,1,2,1,2,3,11,0,],
+    [10,3,4,3,4,1,11,0,],
+])
+label_tensor_train = np.array([
+    [1,2,1,2,3,11,0,0,],
+    [3,4,3,4,1,11,0,0,],
+])
+
+learning_rate = CustomSchedule(d_model)
+optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98,
+                                     epsilon=1e-9)
+transformer.compile(
+    loss=masked_loss,
+    optimizer=optimizer,
+    metrics=[masked_accuracy])
+history = transformer.fit((input_tensor_train,target_tensor_train),label_tensor_train,
+                epochs=100,batch_size=BATCH_SIZE,verbose=0)
+test_inputs = np.array([
+    [10,2,3,4,11,0,0,0,],
+])
+test_targets = np.array([
+    [10,1,2,1,2,3,11,0,],
+])
+preds = transformer.predict([test_inputs, test_targets])
+print("Inputs:",test_inputs.shape)
+print("targets:",test_targets.shape)
+print("Preds :",preds.shape)
+print(np.argmax(preds, axis=-1))
 
 
+exit()
+#encoder = Encoder(num_layers=num_layers, d_model=d_model,
+#        num_heads=num_heads, dff=dff,
+#        vocab_size=input_vocab_size,
+#        #dropout_rate=dropout_rate,
+#        kernel_initializer='ones',
+#        bias_initializer='zeros',
+#)
+#predict = encoder(inp_seq, training=True)
+#print(predict)
+#decoder = Decoder(num_layers=num_layers, d_model=d_model,
+#        num_heads=num_heads, dff=dff,
+#        vocab_size=target_vocab_size,
+#        #dropout_rate=dropout_rate,
+#        kernel_initializer='ones',
+#        bias_initializer='zeros',
+#)
+#predict = decoder(inp_seq, inp_vec, training=True)
+#print(predict)
+#encoder_layer = EncoderLayer(d_model=d_model,
+#    num_heads=num_heads,
+#    dff=dff,
+#    dropout_rate=dropout_rate,
+#    kernel_initializer='ones',
+#    bias_initializer='zeros',
+#)
+#predict = encoder_layer(inp_vec, training=True)
+#print(predict)
+
+exit()
 
 # Try experimenting with the size of that dataset
 dataset = EngFraDataset()
@@ -575,6 +773,7 @@ label_tensor_val   = make_labels(target_tensor_val)
 BUFFER_SIZE = len(input_tensor_train)
 steps_per_epoch = len(input_tensor_train)//BATCH_SIZE
 print("num_examples:",num_examples)
+print("train on:",len(input_tensor_train))
 print('num_words:',num_words)
 print("epoch:",EPOCHS)
 print("batch_size:",BATCH_SIZE)
@@ -613,6 +812,11 @@ print("Train model...")
 history = transformer.fit((input_tensor_train,target_tensor_train),label_tensor_train,
                 epochs=EPOCHS,batch_size=BATCH_SIZE,
                 validation_data=((input_tensor_val,target_tensor_val),label_tensor_val))
+
+print('trainable_weights=',len(transformer.trainable_weights))
+#for weight in transformer.trainable_weights:
+#   print(weight.name)
+#exit()
 
 plt.plot(history.history['loss'],label='loss')
 plt.plot(history.history['masked_accuracy'],label='accuracy')

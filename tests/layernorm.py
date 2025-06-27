@@ -368,12 +368,14 @@ with tf.GradientTape() as tape:
     outputs = layernorm(inputs)
     result = outputs * d_scaled_x
 
-grads = tape.gradient(result, [outputs, inputs])
-d_outputs, d_inputs = grads
+grads = tape.gradient(result, [outputs, inputs]+layernorm.trainable_variables)
+d_outputs, d_inputs, d_gamma, d_beta = grads
 #print('inputs=', inputs.numpy())
 #print("outputs=\n", outputs.numpy())
 #print('d_outputs=', d_outputs.numpy())
 print('d_inputs=', d_inputs.numpy())
+print('d_gamma=', d_gamma.numpy())
+print('d_beta=', d_beta.numpy())
 
 d_x = gradients['d_x']
 print('diff(tf-custom)=',tf.math.reduce_max(tf.math.abs(normalized_x - outputs)))
