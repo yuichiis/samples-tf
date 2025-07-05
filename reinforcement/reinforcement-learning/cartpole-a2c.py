@@ -2,11 +2,11 @@ import numpy as np
 from collections import deque
 from tensorflow.python import keras
 from tensorflow.keras.optimizers import Adam
-import gym
+import gymnasium as gym
 import tensorflow as tf
 import matplotlib.pyplot as plt
 
-env = gym.make("CartPole-v0")
+env = gym.make("CartPole-v1")
 
 # 環境の状態の形式(shape)
 obs_shape = env.observation_space.shape
@@ -23,7 +23,7 @@ actor_layer = keras.layers.Dense(nb_actions, activation="linear")(c)
 critic_layer = keras.layers.Dense(1, activation="linear")(c)
 
 model = keras.Model(input_, [actor_layer, critic_layer])
-model.compile(optimizer=Adam(lr=lr))
+optimizer = Adam(learning_rate=lr)
 model.summary()
 
 def LinearSoftmaxPolicy(model, state, nb_actions):
@@ -103,7 +103,7 @@ def  train(model, experiences):
 
     # 勾配を計算し、optimizerでモデルを更新
     gradients = tape.gradient(loss, model.trainable_variables)
-    model.optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     return loss.numpy()
 
 batch_size = 32
@@ -116,19 +116,21 @@ success = 0
 # 学習ループ
 # env = gym.make("CartPole-v0")
 for episode in range(300):
-    state = np.asarray(env.reset())
+    state, _ = env.reset()
+    state = np.asarray(state)
     done = False
+    truncated = False
     total_reward = 0
     loss = 0.0
 
     # 1episode
-    while not done:
+    while not (done or truncated):
 
         # アクションを決定
         action = LinearSoftmaxPolicy(model, state, nb_actions)
 
         # 1step進める
-        n_state, reward, done, _ = env.step(action)
+        n_state, reward, done, truncated, _ = env.step(action)
         n_state = np.asarray(n_state)
         total_reward += reward
 
@@ -157,20 +159,21 @@ plt.plot(losses)
 plt.legend(('reward','losses'))
 plt.show()
 
+env = gym.make("CartPole-v1",render_mode="human")
 # 5回テストする
 for episode in range(5):
-    state = np.asarray(env.reset())
-    env.render()
+    state, _ = env.reset()
+    state = np.asarray(state)
     done = False
+    truncated = False
     total_reward = 0
     step = 0
 
     # 1episode
-    while not done:
+    while not (done or truncated):
         action = LinearSoftmaxPolicy(model, state, nb_actions)
-        n_state, reward, done, _ = env.step(action)
+        n_state, reward, done, truncated, _ = env.step(action)
         state = np.asarray(n_state)
-        env.render()
         step += 1
         total_reward += reward
 
