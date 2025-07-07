@@ -6,176 +6,188 @@ import gymnasium as gym
 import tensorflow as tf
 import matplotlib.pyplot as plt
 
+# === 環境の準備 ===
 env = gym.make("CartPole-v1")
-
-# 環境の状態の形式(shape)
 obs_shape = env.observation_space.shape
-
-# 環境の取りうるアクション数
 nb_actions = env.action_space.n
 
-lr = 0.01  # 学習率
-
+# === モデルの定義 (変更なし) ===
 c = input_ = keras.layers.Input(shape=obs_shape)
-c = keras.layers.Dense(10, activation="relu")(c)
-c = keras.layers.Dense(10, activation="relu")(c)
+c = keras.layers.Dense(64, activation="relu")(c) # 少し層を厚くすると性能が上がることがある
+c = keras.layers.Dense(64, activation="relu")(c)
 actor_layer = keras.layers.Dense(nb_actions, activation="linear")(c)
 critic_layer = keras.layers.Dense(1, activation="linear")(c)
 
 model = keras.Model(input_, [actor_layer, critic_layer])
-optimizer = Adam(learning_rate=lr)
 model.summary()
 
-def LinearSoftmaxPolicy(model, state, nb_actions):
-    action_eval, _ = model(state.reshape((1,-1)))
-    probs = tf.nn.softmax(action_eval)
-    return np.random.choice(nb_actions, 1, p=probs[0].numpy())[0]
+# === 方策関数 (変更なし) ===
+def get_action(model, state, nb_actions):
+    # (関数名をより分かりやすく変更)
+    logits, _ = model(state.reshape((1, -1)))
+    probs = tf.nn.softmax(logits)
+    return np.random.choice(nb_actions, p=probs[0].numpy())
 
-def  train(model, experiences):
+# === 学習関数 (大幅に修正) ===
+def train(model, optimizer, experiences, gamma):
+    # 経験からバッチデータを作成
+    states = np.asarray([e["state"] for e in experiences])
+    actions = np.asarray([e["action"] for e in experiences])
+    rewards = np.asarray([e["reward"] for e in experiences])
+    next_states = np.asarray([e["n_state"] for e in experiences])
+    dones = np.asarray([e["done"] for e in experiences])
 
-    gamma = 0.9  # 割引率
-
-    # 現在からエピソード最後までの報酬を計算（後ろから計算）
-    if experiences[-1]["done"]:
-        # 最後が終わりの場合は全部使える
-        G = 0
-    else:
-        # 最後が終わりじゃない場合は予測値vで補完する
-        n_state = np.atleast_2d(experiences[-1]["n_state"])
-        _, n_v = model(n_state)
-        G = n_v[0][0].numpy()
-
-    # 割引報酬を後ろから計算
+    # === 割引報酬和 (G_t) の計算 ===
+    # Criticを使って最後の状態の価値をブートストラップする
+    _, last_v = model(next_states[-1].reshape((1, -1)))
+    last_v = last_v.numpy()[0, 0]
+    
+    # G_tを後ろから計算していく
     discounted_rewards = []
-    for exp in reversed(experiences):
-        if exp["done"]:
+    G = last_v
+    for r, done in zip(rewards[::-1], dones[::-1]):
+        if done:
             G = 0
-        G = exp["reward"] + gamma * G
+        G = r + gamma * G
         discounted_rewards.append(G)
     discounted_rewards.reverse()
+    discounted_rewards = np.array(discounted_rewards, dtype=np.float32).reshape(-1, 1)
 
-    # 計算用にnp化して (batch_size,1) の形にする
-    discounted_rewards = np.asarray(discounted_rewards).reshape((-1, 1))
+    # one-hotアクションベクトル
+    onehot_actions = tf.one_hot(actions, nb_actions)
 
-    # ベースライン処理
-    discounted_rewards -= np.mean(discounted_rewards)  # 報酬の平均を引く
-
-    # データ形式を変形
-    state_batch = np.asarray([e["state"] for e in experiences])
-    action_batch = np.asarray([e["action"] for e in experiences])
-
-    # アクションをonehotベクトルの形に変形
-    onehot_actions = tf.one_hot(action_batch, nb_actions)
-
-    #--- 勾配を計算する
+    # === 勾配を計算 ===
     with tf.GradientTape() as tape:
-        action_eval, v = model(state_batch, training=True)
+        logits, v = model(states, training=True)
 
-        # π(a|s)を計算
-        # 全アクションの確率をだし、選択したアクションの確率だけ取り出す
-        # action_probs: [0.2, 0.8] × onehotアクション: [0 ,1] ＝ [0.8] になる
-        action_probs = tf.nn.softmax(action_eval)
-        selected_action_probs = tf.reduce_sum(onehot_actions * action_probs, axis=1, keepdims=True)
-
-        #--- アドバンテージを計算
-        # アドバンテージ方策勾配で使うvは値として使うので、
-        # 勾配で計算されないように tf.stop_gradient を使う
+        # --- アドバンテージ A(s,a) = G_t - V(s) ---
+        # 勾配計算にvの影響を与えないようにする
         advantage = discounted_rewards - tf.stop_gradient(v)
+        
+        # ★★★ アドバンテージの正規化を追加 ★★★
+        # advantageから平均を引き、標準偏差で割る
+        advantage = (advantage - tf.reduce_mean(advantage)) / (tf.math.reduce_std(advantage) + 1e-8)
+        # 1e-8は、標準偏差が0の場合にゼロ除算になるのを防ぐための小さな値(epsilon)
 
-        # log(π(a|s)) * A(s,a) を計算
-        selected_action_probs = tf.clip_by_value(selected_action_probs, 1e-10, 1.0)  # 0にならないようにclip
-        policy_loss = tf.math.log(selected_action_probs) * advantage
+        # --- Actor (Policy) Loss ---
+        # log(π(a|s)) * A(s,a)
+        action_probs = tf.nn.softmax(logits)
+        selected_action_probs = tf.reduce_sum(action_probs * onehot_actions, axis=1, keepdims=True)
+        selected_action_probs = tf.clip_by_value(selected_action_probs, 1e-10, 1.0)
+        policy_loss = -tf.math.log(selected_action_probs) * advantage
 
-        #--- Value loss
-        # 平均二乗誤差で損失を計算
-        value_loss = tf.reduce_mean((discounted_rewards - v) ** 2, axis=1, keepdims=True)
+        # --- Critic (Value) Loss ---
+        # V(s) が G_t に近づくように学習 (Huber損失が安定)
+        value_loss = tf.keras.losses.huber(discounted_rewards, v)
 
-        #--- 方策エントロピー
-        entropy = tf.reduce_sum(tf.math.log(selected_action_probs) * selected_action_probs, axis=1, keepdims=True)
+        # --- Entropy Loss ---
+        # H(π) = -Σ p(a|s) * log(p(a|s))
+        # 0でlogを取るのを防ぐ
+        action_probs = tf.clip_by_value(action_probs, 1e-10, 1.0)
+        entropy = -tf.reduce_sum(action_probs * tf.math.log(action_probs), axis=1, keepdims=True)
 
-        #--- total loss
-        value_loss_weight = 0.5
-        entropy_weight = 0.1
-        loss = -policy_loss + value_loss_weight * value_loss - entropy_weight * entropy
+        # --- Total Loss ---
+        # policy_lossとvalue_lossは最小化、entropyは最大化（なのでマイナスをかける）
+        total_loss = policy_loss + value_loss_weight * value_loss + entropy_weight * entropy
+        total_loss = tf.reduce_mean(total_loss)
 
-        # 全バッチのlossの平均(ミニバッチ処理?)
-        loss = tf.reduce_mean(loss)
-
-    # 勾配を計算し、optimizerでモデルを更新
-    gradients = tape.gradient(loss, model.trainable_variables)
+    # 勾配を計算し、モデルを更新
+    gradients = tape.gradient(total_loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-    return loss.numpy()
+    
+    return total_loss.numpy(), tf.reduce_mean(entropy).numpy()
 
-batch_size = 32
-experiences = []
-losses = []
-steps = []
-total_rewards = []
-success = 0
+# === ハイパーパラメータ ===
+iterations = 400
+gamma = 0.99  # 割引率
+lr = 1e-3     # 学習率 (下げた)
+value_loss_weight = 0.25  # 0.5から0.25へ下げる
+entropy_weight = 0.02 # 0.01から少し上げる
 
-# 学習ループ
-# env = gym.make("CartPole-v0")
-for episode in range(300):
+optimizer = Adam(learning_rate=lr, clipnorm=0.5)  # clipnormを追加 (0.5や1.0が一般的)
+
+# === 学習ループ (修正) ===
+all_rewards = []
+all_losses = []
+all_entropies = []
+
+for episode in range(iterations):
     state, _ = env.reset()
-    state = np.asarray(state)
     done = False
     truncated = False
     total_reward = 0
-    loss = 0.0
+    episode_experiences = []
 
-    # 1episode
+    # 1エピソード実行
     while not (done or truncated):
-
-        # アクションを決定
-        action = LinearSoftmaxPolicy(model, state, nb_actions)
-
-        # 1step進める
+        action = get_action(model, state, nb_actions)
         n_state, reward, done, truncated, _ = env.step(action)
-        n_state = np.asarray(n_state)
+        
         total_reward += reward
 
-        # 経験を保存する
-        experiences.append({
+        episode_experiences.append({
             "state": state,
             "action": action,
             "reward": reward,
             "n_state": n_state,
             "done": done,
         })
-
         state = n_state
 
-        # batch_size貯まるごとに学習する
-        if len(experiences) == batch_size:
-            loss += train(model, experiences)
-            experiences = []
+    # エピソード終了時に学習
+    if len(episode_experiences) > 0:
+        loss, entropy = train(model, optimizer, episode_experiences, gamma)
+        all_losses.append(loss)
+        all_entropies.append(entropy)
+    
+    all_rewards.append(total_reward)
 
-    losses.append(loss)
-    total_rewards.append(total_reward)
-    print('episode:{} total_reward:{} loss:{}'.format(episode,total_reward,loss))
+    if (episode + 1) % 20 == 0:
+        avg_reward = np.mean(all_rewards[-20:])
+        print(f'Episode {episode+1}/{iterations} | Avg Reward (last 20): {avg_reward:.1f} | Loss: {loss:.4f} | Entropy: {entropy:.4f}')
+        if avg_reward > 475: # CartPole-v1のクリア基準
+            print("Environment solved!")
+            break
 
-plt.plot(total_rewards)
-plt.plot(losses)
-plt.legend(('reward','losses'))
+
+# === 結果のプロット ===
+plt.figure(figsize=(12, 8))
+plt.subplot(2, 1, 1)
+plt.plot(all_rewards)
+plt.title('Total Reward per Episode')
+plt.ylabel('Reward')
+# 性能の傾向を見やすくするために移動平均もプロット
+moving_avg = np.convolve(all_rewards, np.ones(20)/20, mode='valid')
+plt.plot(moving_avg)
+plt.legend(['Reward', 'Moving Average (20 ep)'])
+
+
+plt.subplot(2, 1, 2)
+plt.plot(all_losses, label='Loss', alpha=0.7)
+plt.plot(all_entropies, label='Entropy', alpha=0.7)
+plt.title('Loss and Entropy')
+plt.xlabel('Episode')
+plt.ylabel('Value')
+plt.legend()
+plt.tight_layout()
 plt.show()
 
-env = gym.make("CartPole-v1",render_mode="human")
-# 5回テストする
+
+# === テスト実行 ===
+def get_best_action(model, state, nb_actions):
+    logits, _ = model(state.reshape((1, -1)))
+    # 確率が最大のアクションのインデックスを返す
+    return tf.argmax(logits[0]).numpy()
+
+env_render = gym.make("CartPole-v1", render_mode="human")
 for episode in range(5):
-    state, _ = env.reset()
-    state = np.asarray(state)
+    state, _ = env_render.reset()
     done = False
     truncated = False
     total_reward = 0
-    step = 0
-
-    # 1episode
     while not (done or truncated):
-        action = LinearSoftmaxPolicy(model, state, nb_actions)
-        n_state, reward, done, truncated, _ = env.step(action)
-        state = np.asarray(n_state)
-        step += 1
+        action = get_best_action(model, state, nb_actions)
+        state, reward, done, truncated, _ = env_render.step(action)
         total_reward += reward
-
-    print("{} step, reward: {}".format(step, total_reward))
-
+    print(f"Test Episode {episode+1}, Total Reward: {total_reward}")
+env_render.close()
