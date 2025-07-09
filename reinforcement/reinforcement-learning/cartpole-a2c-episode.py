@@ -5,6 +5,7 @@ from tensorflow.keras.optimizers import Adam
 import gymnasium as gym
 import tensorflow as tf
 import matplotlib.pyplot as plt
+import time
 
 # === 環境の準備 ===
 env = gym.make("CartPole-v1")
@@ -53,6 +54,9 @@ def train(model, optimizer, experiences, gamma):
     discounted_rewards.reverse()
     discounted_rewards = np.array(discounted_rewards, dtype=np.float32).reshape(-1, 1)
 
+    # ベースライン処理
+    discounted_rewards -= np.mean(discounted_rewards)  # 報酬の平均を引く
+
     # one-hotアクションベクトル
     onehot_actions = tf.one_hot(actions, nb_actions)
 
@@ -98,15 +102,17 @@ def train(model, optimizer, experiences, gamma):
     return total_loss.numpy(), tf.reduce_mean(entropy).numpy()
 
 # === ハイパーパラメータ ===
-iterations = 400
+iterations = 1500#400
 gamma = 0.99  # 割引率
 lr = 1e-3     # 学習率 (下げた)
-value_loss_weight = 0.25  # 0.5から0.25へ下げる
-entropy_weight = 0.02 # 0.01から少し上げる
+value_loss_weight = 0.5#0.25  # 0.5から0.25へ下げる
+entropy_weight = 0.01#0.02 # 0.01から少し上げる
 
 optimizer = Adam(learning_rate=lr, clipnorm=0.5)  # clipnormを追加 (0.5や1.0が一般的)
 
 # === 学習ループ (修正) ===
+print("--- 学習開始 ---")
+start_time = time.time()
 all_rewards = []
 all_losses = []
 all_entropies = []
@@ -149,6 +155,10 @@ for episode in range(iterations):
             print("Environment solved!")
             break
 
+print("--- 学習終了 ---")
+end_time = time.time()
+execution_time = end_time - start_time
+print(f"実行時間: {execution_time:.4f}秒")
 
 # === 結果のプロット ===
 plt.figure(figsize=(12, 8))

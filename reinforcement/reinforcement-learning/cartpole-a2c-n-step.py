@@ -4,6 +4,7 @@ from tensorflow.python import keras
 from tensorflow.keras.optimizers import Adam
 import gymnasium as gym
 import matplotlib.pyplot as plt
+import time
 
 # === モデルの定義 ===
 def create_a2c_model(input_shape, num_actions):
@@ -120,6 +121,7 @@ if __name__ == '__main__':
     optimizer = Adam(learning_rate=lr, clipnorm=clipnorm)
 
     print("--- 学習開始 ---")
+    start_time = time.time()
     all_rewards = []
     all_losses = [] 
     all_entropies = []
@@ -139,7 +141,7 @@ if __name__ == '__main__':
 
         experiences.append({
             "state": state, "action": action, "reward": reward,
-            "n_state": n_state, "done": done or truncated # truncatedも終端とみなす
+            "n_state": n_state, "done": done
         })
         
         state = n_state
@@ -167,6 +169,9 @@ if __name__ == '__main__':
                 break
     
     print("--- 学習終了 ---")
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print(f"実行時間: {execution_time:.4f}秒")
     
     # ... (プロットとテストのコードは変更なし) ...
     plt.figure(figsize=(14, 6))

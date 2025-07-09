@@ -4,6 +4,7 @@ from tensorflow.python import keras
 from tensorflow.keras.optimizers import Adam
 import gymnasium as gym
 import matplotlib.pyplot as plt
+import time
 
 # === モデルの定義 ===
 def create_a2c_model(input_shape, num_actions):
@@ -37,8 +38,8 @@ def compute_gae_and_returns(rewards, values, next_values, dones, gamma, lambda_g
     for t in reversed(range(len(rewards))):
         mask = 1.0 - dones[t]
         delta = rewards[t] + gamma * next_values[t] * mask - values[t]
-        advantages[t] = delta + gamma * lambda_gae * last_advantage * mask
-        last_advantage = advantages[t]
+        advantages[t] = delta + gamma * lambda_gae * last_advantage * mask # maskの位置を変更
+        last_advantage = advantages[t] # maskの位置を変更
         
     returns = advantages + values
     return advantages, returns
@@ -117,8 +118,8 @@ if __name__ == '__main__':
     lambda_gae = 0.95 # GAEのλ
     actor_lr = 3e-4
     critic_lr = 1e-3
-    value_loss_weight = 0.25#0.5 # ★★★ この行を追加 ★★★
-    entropy_weight = 0.02#0.01
+    value_loss_weight = 0.5#0.25#0.5 # ★★★ この行を追加 ★★★
+    entropy_weight = 0.01#0.02#0.01
     
     print('A2C GAE版')
     print('total_timesteps =',total_timesteps)
@@ -134,6 +135,7 @@ if __name__ == '__main__':
     critic_optimizer = Adam(learning_rate=critic_lr)
 
     print("--- GAE-A2C 学習開始 ---")
+    start_time = time.time()
     all_rewards = []
     all_p_losses = [] 
     all_v_losses = [] 
@@ -152,7 +154,7 @@ if __name__ == '__main__':
             
         experiences.append({
             "state": state, "action": action, "reward": reward,
-            "n_state": n_state, "done": done or truncated # truncatedも終端とみなす
+            "n_state": n_state, "done": done
         })
             
         state = n_state
@@ -181,7 +183,10 @@ if __name__ == '__main__':
             print(f"Update#{update_count} | Step {global_step}/{total_timesteps//1000}k | Ep {episode_count} | Avg Reward (last 20): {avg_reward:.1f} | P_Loss: {avg_p_loss:.3f} | V_Loss: {avg_v_loss:.3f} | Entropy: {avg_entropy:.3f}")
 
     print("--- 学習終了 ---")
-    
+    end_time = time.time()
+    execution_time = end_time - start_time
+    print(f"実行時間: {execution_time:.4f}秒")
+
     # ... (プロットとテストのコードは変更なし) ...
     plt.figure(figsize=(14, 6))
     plt.subplot(1, 2, 1)
