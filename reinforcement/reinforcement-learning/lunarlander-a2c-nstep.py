@@ -90,7 +90,7 @@ def train(model, optimizer, experiences, gamma, value_loss_weight, entropy_weigh
 
 # === メイン処理 ===
 if __name__ == '__main__':
-    env = gym.make("CartPole-v1")
+    env = gym.make("LunarLander-v3")
     obs_shape = env.observation_space.shape
     nb_actions = env.action_space.n
     model = create_a2c_model(obs_shape, nb_actions)
@@ -98,7 +98,7 @@ if __name__ == '__main__':
     
     # --- ハイパーパラメータ (修正済み) ---
     standardize = True
-    total_timesteps = 150000
+    total_timesteps = 180000
     n_steps = 512#512#32
     gamma = 0.99
     lr = 1e-3
@@ -198,7 +198,7 @@ if __name__ == '__main__':
     plt.show()
     
     print("\n--- テスト実行 ---")
-    env_render = gym.make("CartPole-v1", render_mode="human")
+    env_render = gym.make("LunarLander-v3", render_mode="human")
     for i in range(5):
         state, _ = env_render.reset()
         done, truncated = False, False

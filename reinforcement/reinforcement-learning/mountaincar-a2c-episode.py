@@ -89,6 +89,15 @@ def update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weig
     
     return total_loss.numpy(), tf.reduce_mean(entropy).numpy()
 
+def energy_reward(state):
+    x = state[0]#位置(横方向)
+    g = 0.0025#重力定数
+    v = state[1]#速度
+
+    c = 1 / (g*np.sin(3*0.5) + 0.5*0.07*0.07)#正規化定数
+
+    return c*(g*np.sin(3*x) + 0.5*v*v)
+
 def train(env,model):
     # === ハイパーパラメータ ===
     iterations = 1500#400
@@ -108,6 +117,7 @@ def train(env,model):
 
     for episode in range(iterations):
         state, _ = env.reset()
+        max_pos = state[0]
         done = False
         truncated = False
         total_reward = 0
@@ -117,6 +127,11 @@ def train(env,model):
         while not (done or truncated):
             action = get_action(model, state, nb_actions)
             n_state, reward, done, truncated, _ = env.step(action)
+
+            # 前のステップのポテンシャルエネルギーと今のステップのポテンシャルエネルギーを計算
+            # ポテンシャルエネルギーは位置（特に高さ）に依存します
+            # MountainCarの高さは sin(3 * position) で計算できます
+            reward = energy_reward(n_state) - energy_reward(state)
 
             total_reward += reward
 
@@ -140,9 +155,9 @@ def train(env,model):
         if (episode + 1) % 20 == 0:
             avg_reward = np.mean(all_rewards[-20:])
             print(f'Episode {episode+1}/{iterations} | Avg Reward (last 20): {avg_reward:.1f} | Loss: {loss:.4f} | Entropy: {entropy:.4f}')
-            if avg_reward > 475: # CartPole-v1のクリア基準
-                print("Environment solved!")
-                break
+            #if avg_reward > 475: # MountainCar-v0のクリア基準
+            #    print("Environment solved!")
+            #    break
 
     print("--- 学習終了 ---")
     end_time = time.time()
@@ -179,20 +194,20 @@ def get_best_action(model, state, nb_actions):
 # === メイン処理 ===
 if __name__ == '__main__':
     # === 環境の準備 ===
-    env = gym.make("CartPole-v1")
+    env = gym.make("MountainCar-v0")
     obs_shape = env.observation_space.shape
     nb_actions = env.action_space.n
 
     # === モデルの定義 (変更なし) ===
     c = input_ = keras.layers.Input(shape=obs_shape)
-    c = keras.layers.Dense(64, activation="relu")(c) # 少し層を厚くすると性能が上がることがある
-    c = keras.layers.Dense(64, activation="relu")(c)
+    c = keras.layers.Dense(256, activation="relu")(c) # 少し層を厚くすると性能が上がることがある
+    c = keras.layers.Dense(256, activation="relu")(c)
     actor_layer = keras.layers.Dense(nb_actions, activation="linear")(c)
     critic_layer = keras.layers.Dense(1, activation="linear")(c)
 
     model = keras.Model(input_, [actor_layer, critic_layer])
     model.summary()
-    model_file = 'cartpole-a2c-episode-model.h5'
+    model_file = 'mountaincar-a2c-episode-model.h5'
     if os.path.isfile(model_file):
         model.load_weights(model_file)
     else:
@@ -201,7 +216,7 @@ if __name__ == '__main__':
         model.save(model_file)
 
     # === テスト実行 ===
-    env_render = gym.make("CartPole-v1", render_mode="rgb_array")
+    env_render = gym.make("MountainCar-v0", render_mode="rgb_array")
     for episode in range(1):
         state, _ = env_render.reset()
         frames = []
@@ -215,5 +230,5 @@ if __name__ == '__main__':
             total_reward += reward
         print(f"Test Episode {episode+1}, Total Reward: {total_reward}")
     env_render.close()
-    imageio.mimsave('cartpole-a2c-episode-trained.gif', frames, fps=30)
-    print(f"GIFを'cartpole-a2c-episode-trained.gif'に保存しました。最終報酬: {total_reward:.2f}")
+    imageio.mimsave('mountaincar-a2c-episode-trained.gif', frames, fps=30)
+    print(f"GIFを'mountaincar-a2c-episode-trained.gif'に保存しました。最終報酬: {total_reward:.2f}")

@@ -9,8 +9,8 @@ import time
 # === モデルの定義 ===
 def create_a2c_model(input_shape, num_actions):
     input_layer = keras.layers.Input(shape=input_shape)
-    common_layer = keras.layers.Dense(128, activation="relu")(input_layer)
-    common_layer = keras.layers.Dense(128, activation="relu")(common_layer)
+    common_layer = keras.layers.Dense(64, activation="relu")(input_layer)
+    common_layer = keras.layers.Dense(64, activation="relu")(common_layer)
     actor_logits = keras.layers.Dense(num_actions, activation="linear", name="actor_logits")(common_layer)
     critic_value = keras.layers.Dense(1, activation="linear", name="critic_value")(common_layer)
     
@@ -112,7 +112,7 @@ if __name__ == '__main__':
     critic.summary()
     
     # --- ハイパーパラメータ (PyTorch版を参考に調整) ★★★ ---
-    total_timesteps = 150000
+    total_timesteps = 180000
     n_steps = 512#256 # バッチサイズを大きくすると安定しやすい
     gamma = 0.99
     lambda_gae = 0.95 # GAEのλ
@@ -181,6 +181,10 @@ if __name__ == '__main__':
             avg_v_loss = np.mean(all_v_losses[-20:]) if all_v_losses else 0
             avg_entropy = np.mean(all_entropies[-20:]) if all_entropies else 0
             print(f"Update#{update_count} | Step {global_step}/{total_timesteps//1000}k | Ep {episode_count} | Avg Reward (last 20): {avg_reward:.1f} | P_Loss: {avg_p_loss:.3f} | V_Loss: {avg_v_loss:.3f} | Entropy: {avg_entropy:.3f}")
+            if avg_reward > 475: # CartPole-v1のクリア基準
+                print("Environment solved!")
+                break
+
 
     print("--- 学習終了 ---")
     end_time = time.time()
