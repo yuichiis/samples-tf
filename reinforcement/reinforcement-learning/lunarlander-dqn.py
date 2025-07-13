@@ -76,6 +76,7 @@ def train(env,state_shape,num_actions,q_network):
     epsilon = EPSILON_START
     total_steps = 0
     episode_rewards = []
+    episode_steps = []
 
     print("学習を開始します...")
 
@@ -83,10 +84,12 @@ def train(env,state_shape,num_actions,q_network):
     for episode in range(MAX_EPISODES):
         state, _ = env.reset()
         episode_reward = 0
+        episode_step = 0
         done = False
 
         while not done:
             total_steps += 1
+            episode_step += 1
 
             # 3. ε-greedy法による行動選択
             if np.random.rand() < epsilon:
@@ -146,9 +149,11 @@ def train(env,state_shape,num_actions,q_network):
                 break
         
         episode_rewards.append(episode_reward)
+        episode_steps.append(episode_step)
         mean_reward = np.mean(episode_rewards[-100:])
+        mean_step = np.mean(episode_steps[-100:])
 
-        print(f"エピソード: {episode + 1}, 総ステップ: {total_steps}, 報酬: {episode_reward:.2f}, "
+        print(f"エピソード: {episode + 1}, ステップ: {episode_step}, 総ステップ: {total_steps}, 報酬: {episode_reward:.2f}, "
               f"過去100回の平均報酬: {mean_reward:.2f}, ε: {epsilon:.4f}")
         
         # 学習終了条件 (過去100エピソードの平均報酬が200を超えたら成功とみなす)
@@ -172,7 +177,7 @@ if __name__ == "__main__":
     # メインネットワークを作成
     q_network = create_q_model(state_shape, num_actions)
 
-    model_file = 'lunar_lander_dqn_model.h5'
+    model_file = 'lunarlander-dqn.h5'
     if os.path.isfile(model_file):
         q_network.load_weights(model_file)
     else:
@@ -199,5 +204,5 @@ if __name__ == "__main__":
         episode_reward += reward
 
     trained_env.close()
-    imageio.mimsave('lunar_lander_trained.gif', frames, fps=30)
-    print(f"GIFを'lunar_lander_trained.gif'に保存しました。最終報酬: {episode_reward:.2f}")
+    imageio.mimsave('lunarlander-dqn.gif', frames, fps=30)
+    print(f"GIFを'lunarlander-dqn.gif'に保存しました。最終報酬: {episode_reward:.2f}")

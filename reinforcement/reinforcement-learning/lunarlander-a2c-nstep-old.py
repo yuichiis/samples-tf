@@ -4,16 +4,16 @@ from tensorflow.python import keras
 from tensorflow.keras.optimizers import Adam
 import gymnasium as gym
 import matplotlib.pyplot as plt
-import time
 import os
+import time
 import imageio
 
 # === モデルの定義 ===
 def create_a2c_model(input_shape, num_actions):
     """Actor-Criticモデルを生成する"""
     input_layer = keras.layers.Input(shape=input_shape)
-    common_layer = keras.layers.Dense(64, activation="relu")(input_layer)
-    common_layer = keras.layers.Dense(64, activation="relu")(common_layer)
+    common_layer = keras.layers.Dense(128, activation="relu")(input_layer)
+    common_layer = keras.layers.Dense(128, activation="relu")(common_layer)
     actor_logits = keras.layers.Dense(num_actions, activation="linear", name="actor_logits")(common_layer)
     critic_value = keras.layers.Dense(1, activation="linear", name="critic_value")(common_layer)
     model = keras.Model(inputs=input_layer, outputs=[actor_logits, critic_value])
@@ -53,8 +53,8 @@ def update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weig
     discounted_rewards.reverse()
     discounted_rewards = np.array(discounted_rewards, dtype=np.float32).reshape(-1, 1)
 
-    # # ベースライン処理
-    # discounted_rewards -= np.mean(discounted_rewards)  # 報酬の平均を引く
+    ## ベースライン処理
+    #discounted_rewards -= np.mean(discounted_rewards)  # 報酬の平均を引く
 
     onehot_actions = tf.one_hot(actions, model.output[0].shape[1])
 
@@ -93,10 +93,10 @@ def update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weig
 def train(env,model):
     # --- ハイパーパラメータ (修正済み) ---
     standardize = True
-    total_timesteps = 180000
-    n_steps = 512#512#32
+    total_timesteps = 250000#180000
+    n_steps = 128#512#256#32
     gamma = 0.99
-    lr = 1e-3
+    lr = 7e-4#1e-3
     clipnorm = 0.5
     value_loss_weight = 0.5#0.25
     entropy_weight = 0.01#0.02
@@ -118,6 +118,7 @@ def train(env,model):
     print("--- 学習開始 ---")
     start_time = time.time()
     all_rewards = []
+    all_episode_steps = []
     all_losses = [] 
     all_entropies = []
     
@@ -125,20 +126,15 @@ def train(env,model):
     episode_count = 0
     update_count = 0
     episode_reward_sum = 0
+    episode_step_count = 0
     
     state, _ = env.reset()
 
     for global_step in range(1, total_timesteps + 1):
+        episode_step_count += 1
         action = get_action(model, state)
         n_state, reward, done, truncated, _ = env.step(action)
         
-        if n_state[0] > max_pos:
-            max_pos = n_state[0]
-        if done or truncated:
-            reward = reward + 200 * max_pos
-        if max_pos >= 0.5:
-            reward = reward + 200
-
         episode_reward_sum += reward
 
         experiences.append({
@@ -150,8 +146,10 @@ def train(env,model):
 
         if done or truncated:
             all_rewards.append(episode_reward_sum)
+            all_episode_steps.append(episode_step_count)
             episode_count += 1
             episode_reward_sum = 0
+            episode_step_count = 0
             state, _ = env.reset()
 
         if len(experiences) >= n_steps:
@@ -163,9 +161,10 @@ def train(env,model):
 
         if (global_step % (n_steps*10) == 0) or global_step == total_timesteps:
             avg_reward = np.mean(all_rewards[-20:])
+            avg_episode_steps = np.mean(all_episode_steps[-20:])
             last_loss = all_losses[-1] if all_losses else 0
             last_entropy = all_entropies[-1] if all_entropies else 0
-            print(f'Update#{update_count} | Step {global_step}/{total_timesteps//1000}k | Ep {episode_count} | Avg Reward (last 20): {avg_reward:.1f} | Loss: {last_loss:.3f} | Entropy: {last_entropy:.3f}')
+            print(f'Update#{update_count} | Step {global_step}/{total_timesteps//1000}k | Ep {episode_count} | Avg Steps: {avg_episode_steps:.1f} | Avg Reward (last 20): {avg_reward:.1f} | Loss: {last_loss:.3f} | Entropy: {last_entropy:.3f}')
             if avg_reward > 475:
                 print(f"環境がクリアされました！ (平均報酬: {avg_reward})")
                 break
@@ -198,34 +197,38 @@ def train(env,model):
     plt.grid(True)
     plt.tight_layout()
     plt.show()
-    
+
+
 # === メイン処理 ===
 if __name__ == '__main__':
-    env = gym.make("MountainCar-v0")
+    env = gym.make("LunarLander-v2")
     obs_shape = env.observation_space.shape
     nb_actions = env.action_space.n
     model = create_a2c_model(obs_shape, nb_actions)
     model.summary()
-    model_file = 'mountaincar_a2c_model.h5'
+
+    model_file = 'lunarlander-a2c-nstep.h5'
     if os.path.isfile(model_file):
-        model.q_network.load_weights(model_file)
+        model.load_weights(model_file)
     else:
         train(env,model)
+        # 9. 学習済みモデルの保存と評価
         model.save(model_file)
-    
+    env.close()
+
     print("\n--- テスト実行 ---")
-    env_render = gym.make("MountainCar-v0", render_mode="rgb_array")
+    env_render = gym.make("LunarLander-v2", render_mode="rgb_array")
     for i in range(1):
         state, _ = env_render.reset()
-        frames = []
         done, truncated = False, False
         test_reward = 0
+        frames = []
         while not (done or truncated):
-            frames.append(env.render())
+            frames.append(env_render.render())
             action = get_best_action(model, state)
             state, reward, done, truncated, _ = env_render.step(action)
             test_reward += reward
         print(f"Test Episode {i+1}, Total Reward: {test_reward}")
     env_render.close()
-    imageio.mimsave('mountaincar_a2c_trained.gif', frames, fps=30)
-    print(f"GIFを'mountaincar_a2c_trained.gif'に保存しました。最終報酬: {test_reward:.2f}")
+    imageio.mimsave('lunarlander-a2c-nstep.gif', frames, fps=30)
+    print(f"GIFを'lunarlander-a2c-nstep.gif'に保存しました。最終報酬: {test_reward:.2f}")

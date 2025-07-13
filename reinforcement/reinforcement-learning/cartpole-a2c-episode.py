@@ -42,8 +42,8 @@ def update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weig
     discounted_rewards.reverse()
     discounted_rewards = np.array(discounted_rewards, dtype=np.float32).reshape(-1, 1)
 
-    # ベースライン処理
-    discounted_rewards -= np.mean(discounted_rewards)  # 報酬の平均を引く
+    # # ベースライン処理
+    # discounted_rewards -= np.mean(discounted_rewards)  # 報酬の平均を引く
 
     # one-hotアクションベクトル
     onehot_actions = tf.one_hot(actions, nb_actions)
