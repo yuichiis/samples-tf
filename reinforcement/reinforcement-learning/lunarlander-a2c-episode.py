@@ -29,86 +29,73 @@ def get_best_action(model, state):
     logits, _ = model(state.reshape((1, -1)))
     return tf.argmax(logits[0]).numpy()
 
-# === 学習関数 (再修正版) ===
+# === 学習関数 (修正・改善版) ===
 def update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weight, standardize):
     states = np.asarray([e["state"] for e in experiences], dtype=np.float32)
     actions = np.asarray([e["action"] for e in experiences], dtype=np.int32)
     rewards = np.asarray([e["reward"] for e in experiences], dtype=np.float32)
-    # n_stepsの最後のdoneフラグだけでなく、途中のものも必要
-    dones = np.asarray([e["done"] for e in experiences], dtype=np.bool_)
 
-    # 最後の状態の価値を計算（ブートストラップ）
-    # n_stepsの最後がエピソードの終わりでなければ、その先の価値を見積もる
-    if not dones[-1]:
-        last_state = experiences[-1]["n_state"].reshape((1, -1))
-        _, last_v = model(last_state)
-        last_v = last_v.numpy()[0, 0]
-    else:
-        last_v = 0.0
-
-    # === ★★★ ここからが重要な修正点 ★★★ ===
-    # 割引報酬和 (G_t) を後ろから計算する
+    # === 割引報酬和 (G_t) の計算 (エピソード更新用に簡略化) ===
+    # エピソード単位の更新なので、最後の状態の価値は常に0から計算を開始する
     discounted_rewards = []
-    G = last_v
-    # experiencesを逆順にループ
-    for r, done in zip(rewards[::-1], dones[::-1]):
-        # もしエピソードが終了した時点なら、割引計算をリセット
-        if done:
-            G = 0
-        # G_t = r_t + gamma * G_{t+1} を計算
+    G = 0.0
+    # experiencesを逆順にループし、G_t = r_t + gamma * G_{t+1} を計算
+    for r in rewards[::-1]:
         G = r + gamma * G
         discounted_rewards.append(G)
     
     # リストを正しい順序に戻す
     discounted_rewards.reverse()
     discounted_rewards = np.array(discounted_rewards, dtype=np.float32).reshape(-1, 1)
-    # === ★★★ 修正ここまで ★★★ ===
+    # === 修正ここまで ===
 
     onehot_actions = tf.one_hot(actions, model.output[0].shape[1])
 
     with tf.GradientTape() as tape:
         logits, v = model(states, training=True)
 
-        advantage = discounted_rewards - tf.stop_gradient(v)
+        advantage = discounted_rewards - v # stop_gradientは不要 (vの勾配はvalue_lossでのみ使われるため)
         
         if standardize:
             advantage = (advantage - tf.reduce_mean(advantage)) / (tf.math.reduce_std(advantage) + 1e-8)
 
+        # AdvantageはActorの学習にのみ使い、勾配は流さない
+        advantage_no_grad = tf.stop_gradient(advantage)
+
         action_probs = tf.nn.softmax(logits)
-        selected_action_probs = tf.reduce_sum(action_probs * onehot_actions, axis=1, keepdims=True)
-        selected_action_probs = tf.clip_by_value(selected_action_probs, 1e-10, 1.0)
+        log_probs = tf.math.log(tf.clip_by_value(action_probs, 1e-10, 1.0))
+        selected_log_probs = tf.reduce_sum(log_probs * onehot_actions, axis=1, keepdims=True)
         
-        policy_loss = -tf.math.log(selected_action_probs) * advantage
+        policy_loss = -selected_log_probs * advantage_no_grad
 
         value_loss = tf.keras.losses.huber(discounted_rewards, v)
 
-        action_probs_clipped = tf.clip_by_value(action_probs, 1e-10, 1.0)
-        entropy = -tf.reduce_sum(action_probs_clipped * tf.math.log(action_probs_clipped), axis=1, keepdims=True)
+        entropy = -tf.reduce_sum(action_probs * log_probs, axis=1, keepdims=True)
         
-        # Total Loss: policy lossとvalue lossは最小化、entropyは最大化(-entropyを最小化)
         total_loss = policy_loss + value_loss_weight * value_loss - entropy_weight * entropy
         total_loss = tf.reduce_mean(total_loss)
 
     gradients = tape.gradient(total_loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     
-    # 報告用のエントロピーは正の値にする
-    return total_loss.numpy(), tf.reduce_mean(-entropy).numpy()
+    # ★★★ 報告用のエントロピーを正しい正の値にする ★★★
+    return total_loss.numpy(), tf.reduce_mean(entropy).numpy()
 
 def train(env,model):
     # --- ハイパーパラメータ (修正済み) ---
     standardize = True
     total_episodes = 1000
     gamma = 0.99
-    lr = 7e-4
+    # ★ 学習率を下げる (非常に重要)
+    lr = 1e-4 #7e-4
     clipnorm = 0.5
     value_loss_weight = 0.5
-    entropy_weight = 0.01
+    # ★ エントロピー係数を上げる
+    entropy_weight = 0.02 #0.01
 
     print('A2C 通常版')
     print('standardize =',standardize)    
-    print('total_timesteps =',total_timesteps)
-    print('n_steps =',n_steps)
+    print('total_episodes =',total_episodes)
     print('gamma =',gamma)
     print('lr =',lr)
     print('clipnorm =',clipnorm)
@@ -120,8 +107,10 @@ def train(env,model):
     print("--- 学習開始 ---")
     start_time = time.time()
     all_rewards = []
+    all_episode_steps = []
     all_losses = [] 
     all_entropies = []
+    total_steps = 0
     
     for episode in range(1,total_episodes+1):
         state, _ = env.reset()
@@ -134,7 +123,7 @@ def train(env,model):
         # 1エピソード実行
         while not (done or truncated):
             episode_step_count += 1
-            action = get_action(model, state, nb_actions)
+            action = get_action(model, state)
             n_state, reward, done, truncated, _ = env.step(action)
 
             total_reward += reward
@@ -150,15 +139,19 @@ def train(env,model):
 
         # エピソード終了時に学習
         if len(episode_experiences) > 0:
-            loss, entropy = update(model, optimizer, episode_experiences, gamma, value_loss_weight, entropy_weight)
+            loss, entropy = update(model, optimizer, episode_experiences, gamma, value_loss_weight, entropy_weight, standardize)
             all_losses.append(loss)
             all_entropies.append(entropy)
 
         all_rewards.append(total_reward)
+        all_episode_steps.append(episode_step_count)
+        total_steps += episode_step_count
+
 
         if (episode + 1) % 20 == 0:
             avg_reward = np.mean(all_rewards[-20:])
-            print(f'Episode {episode+1}/{total_episodes}|Steps:{episode_step_count}|Avg Reward (last 20):{avg_reward:.1f}|Loss:{loss:.4f}|Entropy:{entropy:.4f}')
+            avg_episode_steps = np.mean(all_episode_steps[-20:])
+            print(f'Episode:{episode+1}/{total_episodes}|Step:{total_steps}|AvgSteps:{avg_episode_steps:.1f}|Avg Reward (last 20):{avg_reward:.1f}|Loss:{loss:.4f}|Entropy:{entropy:.4f}')
             if avg_reward > 475: # CartPole-v1のクリア基準
                 print("Environment solved!")
                 break
@@ -216,13 +209,15 @@ if __name__ == '__main__':
         state, _ = env_render.reset()
         done, truncated = False, False
         test_reward = 0
+        test_steps = 0
         frames = []
         while not (done or truncated):
+            test_steps += 1
             frames.append(env_render.render())
             action = get_best_action(model, state)
             state, reward, done, truncated, _ = env_render.step(action)
             test_reward += reward
-        print(f"Test Episode {i+1}, Total Reward: {test_reward}")
+        print(f"Test Episode {i+1}, Test Steps: {test_steps}, Total Reward: {test_reward}")
     env_render.close()
     imageio.mimsave('lunarlander-a2c-episode.gif', frames, fps=30)
     print(f"GIFを'lunarlander-a2c-episode.gif'に保存しました。最終報酬: {test_reward:.2f}")
