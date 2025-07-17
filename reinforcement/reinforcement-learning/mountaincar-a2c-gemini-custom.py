@@ -131,7 +131,7 @@ def train():
         # 解決条件もカスタム報酬ベースに変更（値は調整が必要）
         if avg_reward >= 50.0 and len(ep_rewards) >= 100:
             print(f"\nSolved at episode {episode}!")
-            model.save_weights('mountaincar_a2c_custom_reward.h5')
+            model.save_weights('mountaincar-a2c-custom-reward.weights.h5')
             break
             
     env.close()

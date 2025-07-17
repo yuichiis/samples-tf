@@ -112,9 +112,9 @@ print("training model ...")
 history = model.fit(train_img,train_label,
     epochs=epochs,batch_size=batch_size,validation_data=(test_img,test_label))
 
-#model.save('mnist-basic-model.h5')
+#model.save('mnist-basic-model.weights.h5')
 
-#model = keras.models.load_model('mnist-basic-model.h5')
+#model = keras.models.load_model('mnist-basic-model.weights.h5')
 
 plt.plot(np.array(history.history['accuracy']),label='accuracy')
 plt.plot(np.array(history.history['val_accuracy']),label='val_accuracy')

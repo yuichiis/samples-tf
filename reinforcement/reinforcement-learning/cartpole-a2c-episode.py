@@ -1,6 +1,6 @@
 import numpy as np
 from collections import deque
-from tensorflow.python import keras
+from tensorflow import keras
 from tensorflow.keras.optimizers import Adam
 import gymnasium as gym
 import tensorflow as tf
@@ -192,7 +192,7 @@ if __name__ == '__main__':
 
     model = keras.Model(input_, [actor_layer, critic_layer])
     model.summary()
-    model_file = 'cartpole-a2c-episode-model.h5'
+    model_file = 'cartpole-a2c-episode-model.weights.h5'
     if os.path.isfile(model_file):
         model.load_weights(model_file)
     else:

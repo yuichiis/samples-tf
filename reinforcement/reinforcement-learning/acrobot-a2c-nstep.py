@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.python import keras
+from tensorflow import keras
 from tensorflow.keras.optimizers import Adam
 import gymnasium as gym
 import matplotlib.pyplot as plt

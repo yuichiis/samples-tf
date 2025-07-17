@@ -177,7 +177,7 @@ if __name__ == "__main__":
     # メインネットワークを作成
     q_network = create_q_model(state_shape, num_actions)
 
-    model_file = 'lunarlander-dqn.h5'
+    model_file = 'lunarlander-dqn.weights.h5'
     if os.path.isfile(model_file):
         q_network.load_weights(model_file)
     else:

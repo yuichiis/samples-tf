@@ -248,7 +248,7 @@ tau = 0.005
 
 buffer = Buffer(50000, 64)
 
-if not exists('pendulum_actor.h5'):
+if not exists('pendulum-actor.weights.h5'):
 
     # To store reward history of each episode
     ep_reward_list = []

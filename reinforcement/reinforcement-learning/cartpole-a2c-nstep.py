@@ -1,10 +1,12 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.python import keras
+from tensorflow import keras
 from tensorflow.keras.optimizers import Adam
 import gymnasium as gym
 import matplotlib.pyplot as plt
+import os
 import time
+import imageio
 
 # === モデルの定義 ===
 def create_a2c_model(input_shape, num_actions):
@@ -20,15 +22,17 @@ def create_a2c_model(input_shape, num_actions):
 # === 行動選択関数 ===
 def get_action(model, state):
     logits, _ = model(state.reshape((1, -1)))
-    probs = tf.nn.softmax(logits)
-    return np.random.choice(len(probs[0]), p=probs[0].numpy())
+    # probs = tf.nn.softmax(logits)
+    # return np.random.choice(len(probs[0]), p=probs[0].numpy())
+    action_tensor = tf.random.categorical(logits, 1)[0, 0]
+    return action_tensor.numpy()
 
 def get_best_action(model, state):
     logits, _ = model(state.reshape((1, -1)))
     return tf.argmax(logits[0]).numpy()
 
 # === 学習関数 (修正済み) ===
-def train(model, optimizer, experiences, gamma, value_loss_weight, entropy_weight, standardize):
+def update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weight, standardize):
     states = np.asarray([e["state"] for e in experiences], dtype=np.float32)
     actions = np.asarray([e["action"] for e in experiences], dtype=np.int32)
     rewards = np.asarray([e["reward"] for e in experiences], dtype=np.float32)
@@ -88,23 +92,16 @@ def train(model, optimizer, experiences, gamma, value_loss_weight, entropy_weigh
     
     return total_loss.numpy(), tf.reduce_mean(entropy).numpy()
 
-# === メイン処理 ===
-if __name__ == '__main__':
-    env = gym.make("CartPole-v1")
-    obs_shape = env.observation_space.shape
-    nb_actions = env.action_space.n
-    model = create_a2c_model(obs_shape, nb_actions)
-    model.summary()
-    
+def train(env,model):
     # --- ハイパーパラメータ (修正済み) ---
     standardize = True
-    total_timesteps = 180000
-    n_steps = 512#512#32
+    total_timesteps = 1024# 200000
+    n_steps = 512#256#32
     gamma = 0.99
-    lr = 1e-3
+    lr = 7e-4
     clipnorm = 0.5
-    value_loss_weight = 0.5#0.25
-    entropy_weight = 0.01#0.02
+    value_loss_weight = 0.5
+    entropy_weight = 0.01
 
     print('A2C 通常版')
     print('standardize =',standardize)    
@@ -116,13 +113,12 @@ if __name__ == '__main__':
     print('value_loss_weight =',value_loss_weight)
     print('entropy_weight =',entropy_weight)
 
-
-
     optimizer = Adam(learning_rate=lr, clipnorm=clipnorm)
 
     print("--- 学習開始 ---")
     start_time = time.time()
     all_rewards = []
+    all_episode_steps = []
     all_losses = [] 
     all_entropies = []
     
@@ -130,10 +126,12 @@ if __name__ == '__main__':
     episode_count = 0
     update_count = 0
     episode_reward_sum = 0
+    episode_step_count = 0
     
     state, _ = env.reset()
 
     for global_step in range(1, total_timesteps + 1):
+        episode_step_count += 1
         action = get_action(model, state)
         n_state, reward, done, truncated, _ = env.step(action)
         
@@ -148,12 +146,14 @@ if __name__ == '__main__':
 
         if done or truncated:
             all_rewards.append(episode_reward_sum)
+            all_episode_steps.append(episode_step_count)
             episode_count += 1
             episode_reward_sum = 0
+            episode_step_count = 0
             state, _ = env.reset()
 
         if len(experiences) >= n_steps:
-            loss, entropy = train(model, optimizer, experiences, gamma, value_loss_weight, entropy_weight, standardize)
+            loss, entropy = update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weight, standardize)
             all_losses.append(loss)
             all_entropies.append(entropy)
             experiences = []
@@ -161,9 +161,10 @@ if __name__ == '__main__':
 
         if (global_step % (n_steps*10) == 0) or global_step == total_timesteps:
             avg_reward = np.mean(all_rewards[-20:])
+            avg_episode_steps = np.mean(all_episode_steps[-20:])
             last_loss = all_losses[-1] if all_losses else 0
             last_entropy = all_entropies[-1] if all_entropies else 0
-            print(f'Update#{update_count} | Step {global_step}/{total_timesteps//1000}k | Ep {episode_count} | Avg Reward (last 20): {avg_reward:.1f} | Loss: {last_loss:.3f} | Entropy: {last_entropy:.3f}')
+            print(f'Update:{update_count}|Step:{global_step}/{total_timesteps//1000}k|Ep:{episode_count}|AvgSteps:{avg_episode_steps:.1f}|AvgReward:{avg_reward:.1f}|Loss:{last_loss:.3f}|Entropy:{last_entropy:.3f}')
             if avg_reward > 475:
                 print(f"環境がクリアされました！ (平均報酬: {avg_reward})")
                 break
@@ -197,15 +198,41 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.show()
     
+
+# === メイン処理 ===
+if __name__ == '__main__':
+    env = gym.make("CartPole-v1")
+    obs_shape = env.observation_space.shape
+    nb_actions = env.action_space.n
+    model = create_a2c_model(obs_shape, nb_actions)
+    model.summary()
+
+    model_file = 'cartpole-a2c-nstep.weights.h5'
+    if os.path.isfile(model_file):
+        model.load_weights(model_file)
+        #load_model(model_file)
+    else:
+        train(env,model)
+        # 9. 学習済みモデルの保存と評価
+        model.save_weights(model_file)
+        #save_model(model, model_file)
+    env.close()
+
     print("\n--- テスト実行 ---")
-    env_render = gym.make("CartPole-v1", render_mode="human")
+    env_render = gym.make("CartPole-v1", render_mode="rgb_array")
     for i in range(5):
         state, _ = env_render.reset()
         done, truncated = False, False
         test_reward = 0
+        test_steps = 0
+        frames = []
         while not (done or truncated):
+            test_steps += 1
+            frames.append(env_render.render())
             action = get_best_action(model, state)
             state, reward, done, truncated, _ = env_render.step(action)
             test_reward += reward
-        print(f"Test Episode {i+1}, Total Reward: {test_reward}")
+        print(f"Test Episode {i+1}, Test Steps: {test_steps}, Total Reward: {test_reward}")
     env_render.close()
+    imageio.mimsave('cartpole-a2c-nstep.gif', frames, fps=30)
+    print(f"GIFを'cartpole-a2c-nstep.gif'に保存しました。最終報酬: {test_reward:.2f}")

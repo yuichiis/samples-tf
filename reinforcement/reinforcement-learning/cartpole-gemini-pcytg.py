@@ -145,4 +145,4 @@ if __name__ == '__main__':
     env.close()
 
     # 学習済みモデルの保存 (必要に応じて)
-    # agent.policy_network.save_weights('dqn_cartpole.h5')
+    # agent.policy_network.save_weights('dqn-cartpole.weights.h5')

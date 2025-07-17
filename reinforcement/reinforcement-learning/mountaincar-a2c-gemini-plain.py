@@ -120,7 +120,7 @@ def train():
 
         if avg_reward >= -110.0 and len(ep_rewards) >= 100:
             print(f"\nSolved at episode {episode}!")
-            model.save_weights('mountaincar_a2c.h5')
+            model.save_weights('mountaincar-a2c.weights.h5')
             break
             
     env.close()

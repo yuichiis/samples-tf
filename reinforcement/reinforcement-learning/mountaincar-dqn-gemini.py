@@ -181,7 +181,7 @@ if __name__ == "__main__":
     action_size = env.action_space.n
     agent = DQNAgent(state_size, action_size)
 
-    model_file = 'mountaincar_dqn_model.h5'
+    model_file = 'mountaincar-dqn-model.weights.h5'
     if os.path.isfile(model_file):
         agent.q_network.load_weights(model_file)
         agent.update_target_network()

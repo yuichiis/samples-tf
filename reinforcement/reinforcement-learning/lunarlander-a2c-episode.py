@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.python import keras
+from tensorflow import keras
 from tensorflow.keras.optimizers import Adam
 import gymnasium as gym
 import matplotlib.pyplot as plt
@@ -194,7 +194,7 @@ if __name__ == '__main__':
     model = create_a2c_model(obs_shape, nb_actions)
     model.summary()
 
-    model_file = 'lunarlander-a2c-episode.h5'
+    model_file = 'lunarlander-a2c-episode.weights.h5'
     if os.path.isfile(model_file):
         model.load_weights(model_file)
     else:

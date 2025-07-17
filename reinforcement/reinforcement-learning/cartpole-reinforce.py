@@ -1,6 +1,6 @@
 import numpy as np
 from collections import deque
-from tensorflow.python import keras
+from tensorflow import keras
 from tensorflow.keras.optimizers import Adam
 import gym
 import tensorflow as tf
