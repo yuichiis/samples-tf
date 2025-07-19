@@ -1,5 +1,5 @@
-#import gymnasium as gym
-import gym
+import gymnasium as gym
+#import gym
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers
@@ -51,13 +51,66 @@ class A2CAgent:
         self.actor_optimizer = tf.keras.optimizers.Adam(learning_rate=LR_ACTOR)
         self.critic_optimizer = tf.keras.optimizers.Adam(learning_rate=LR_CRITIC)
 
+    #def get_action(self, state):
+    #    state = state.reshape([1, self.state_dim])
+    #    mu, sigma, _ = self.model(state)
+    #    dist = tfp.distributions.Normal(mu, sigma)
+    #    action = tf.squeeze(dist.sample(1), axis=0)
+    #    action = tf.clip_by_value(action, -self.action_bound, self.action_bound)
+    #    return action.numpy()[0]
+    
     def get_action(self, state):
         state = state.reshape([1, self.state_dim])
         mu, sigma, _ = self.model(state)
-        dist = tfp.distributions.Normal(mu, sigma)
-        action = tf.squeeze(dist.sample(1), axis=0)
+        
+        # --- tensorflow-probabilityの代替実装 ---
+        # 1. 標準正規分布(平均0, 標準偏差1)からノイズを生成
+        epsilon = tf.random.normal(shape=tf.shape(mu))
+        
+        # 2. 再パラメータ化トリックを使ってアクションをサンプリング
+        # action = mean + std_dev * noise
+        sampled_action = mu + sigma * epsilon
+        # ----------------------------------------
+
+        # tf.squeezeは不要になりますが、念のためつけておくと安全です
+        # (mu, sigmaのshapeが(1, N)なので、sampled_actionも(1, N)になるため)
+        action = tf.squeeze(sampled_action, axis=0)
+        
+        # アクションをクリッピング（ここは変更なし）
         action = tf.clip_by_value(action, -self.action_bound, self.action_bound)
-        return action.numpy()[0]
+        
+        # バッチ次元が残っている場合があるので、numpyに変換してから返す
+        # 元のコードの action.numpy()[0] とほぼ同じ挙動になります
+        return action.numpy()
+
+    def calculate_normal_dist_stats(self, mu, sigma, action):
+        """
+        tensorflow-probabilityなしで正規分布の統計量を計算する。
+
+        Args:
+            mu (tf.Tensor): 平均
+            sigma (tf.Tensor): 標準偏差
+            action (tf.Tensor): 確率を計算したいアクション
+
+        Returns:
+            tuple[tf.Tensor, tf.Tensor]: (log_prob, entropy)
+        """
+        # 数値安定性のための微小値
+        epsilon = 1e-8
+        stable_sigma = sigma + epsilon
+
+        # 対数確率密度 (log_prob)
+        log_prob = (
+            -tf.math.log(stable_sigma)
+            - 0.5 * np.log(2.0 * np.pi)
+            - 0.5 * tf.square((action - mu) / stable_sigma)
+        )
+
+        # エントロピー (entropy)
+        entropy = 0.5 + 0.5 * np.log(2.0 * np.pi) + tf.math.log(stable_sigma)
+
+        return log_prob, entropy
+
 
     def compute_loss(self, state, action, reward, next_state, done):
         state = tf.convert_to_tensor(state.reshape([1, self.state_dim]), dtype=tf.float32)
@@ -77,10 +130,14 @@ class A2CAgent:
             critic_loss = delta ** 2
 
             # Actor loss
-            dist = tfp.distributions.Normal(mu, sigma)
-            log_prob = dist.log_prob(action)
-            entropy = dist.entropy()
+            #dist = tfp.distributions.Normal(mu, sigma)
+            #log_prob = dist.log_prob(action)
+            #entropy = dist.entropy()
+            #actor_loss = -log_prob * delta - ENTROPY_COEF * entropy
+            # ... (mu, sigma, action, delta, ENTROPY_COEFが定義されているとする)
+            log_prob, entropy = self.calculate_normal_dist_stats(mu, sigma, action)
             actor_loss = -log_prob * delta - ENTROPY_COEF * entropy
+
 
         # Compute gradients
         actor_grads = tape.gradient(actor_loss, self.model.trainable_variables)
@@ -110,7 +167,7 @@ class A2CAgent:
             print(f"Episode: {ep + 1}, Reward: {episode_reward:.2f}")
 
 if __name__ == "__main__":
-    import tensorflow_probability as tfp
+    #import tensorflow_probability as tfp
 
     env = gym.make(ENV_NAME)
     agent = A2CAgent(env)

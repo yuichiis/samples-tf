@@ -10,29 +10,36 @@ import imageio
 
 # === モデルの定義 ===
 def create_a2c_model(input_shape, num_actions):
-    """Actor-Criticモデルを生成する"""
     input_layer = keras.layers.Input(shape=input_shape)
-    common_layer = keras.layers.Dense(64, activation="relu")(input_layer)
-    common_layer = keras.layers.Dense(64, activation="relu")(common_layer)
-    actor_logits = keras.layers.Dense(num_actions, activation="linear", name="actor_logits")(common_layer)
+    common_layer = keras.layers.Dense(64, activation="relu",name="actor_dense1")(input_layer)
+    common_layer = keras.layers.Dense(64, activation="relu",name="actor_dense2")(common_layer)
+    last_init = keras.initializers.RandomUniform(minval=-0.003, maxval=0.003)
+    actor_logits = keras.layers.Dense(num_actions, activation="linear", name="actor_logits", kernel_initializer=last_init)(common_layer)
+    actor = keras.Model(inputs=input_layer, outputs=actor_logits)
+
+    input_layer = keras.layers.Input(shape=input_shape)
+    common_layer = keras.layers.Dense(64, activation="relu",name="critic_dense1")(input_layer)
+    common_layer = keras.layers.Dense(64, activation="relu",name="critic_dense2")(common_layer)
     critic_value = keras.layers.Dense(1, activation="linear", name="critic_value")(common_layer)
-    model = keras.Model(inputs=input_layer, outputs=[actor_logits, critic_value])
-    return model
+    critic = keras.Model(inputs=input_layer, outputs=critic_value)
+
+    # ActorとCriticのモデルを分けることで、オプティマイザも分離できる
+    return actor, critic
 
 # === 行動選択関数 ===
 def get_action(model, state):
-    logits, _ = model(state.reshape((1, -1)))
+    logits = model(state.reshape((1, -1)))
     # probs = tf.nn.softmax(logits)
     # return np.random.choice(len(probs[0]), p=probs[0].numpy())
     action_tensor = tf.random.categorical(logits, 1)[0, 0]
     return action_tensor.numpy()
 
 def get_best_action(model, state):
-    logits, _ = model(state.reshape((1, -1)))
+    logits = model(state.reshape((1, -1)))
     return tf.argmax(logits[0]).numpy()
 
 # === 学習関数 (修正済み) ===
-def update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weight, standardize):
+def update(actor, critic, actor_optimizer, critic_optimizer, experiences, gamma, value_loss_weight, entropy_weight, standardize):
     states = np.asarray([e["state"] for e in experiences], dtype=np.float32)
     actions = np.asarray([e["action"] for e in experiences], dtype=np.int32)
     rewards = np.asarray([e["reward"] for e in experiences], dtype=np.float32)
@@ -40,7 +47,7 @@ def update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weig
 
     if not dones[-1]:
         last_state = experiences[-1]["n_state"].reshape((1, -1))
-        _, last_v = model(last_state)
+        last_v = critic(last_state)
         last_v = last_v.numpy()[0, 0]
     else:
         last_v = 0.0
@@ -58,14 +65,15 @@ def update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weig
     # # ベースライン処理
     # discounted_rewards -= np.mean(discounted_rewards)  # 報酬の平均を引く
 
-    onehot_actions = tf.one_hot(actions, model.output[0].shape[1])
+    onehot_actions = tf.one_hot(actions, actor.output[0].shape[0])
+    # ★★★ 修正点 1: Advantage計算時にCriticの勾配を止める ★★★
+    # これでAdvantageの計算がCriticの学習に影響を与えないことが保証される
+    next_values = critic(states, training=False)
 
     with tf.GradientTape() as tape:
-        logits, v = model(states, training=True)
+        logits = actor(states, training=True)
 
-        # ★★★ 修正点 1: Advantage計算時にCriticの勾配を止める ★★★
-        # これでAdvantageの計算がCriticの学習に影響を与えないことが保証される
-        advantage = discounted_rewards - tf.stop_gradient(v)
+        advantage = discounted_rewards - next_values
         
         if(standardize):
             advantage = (advantage - tf.reduce_mean(advantage)) / (tf.math.reduce_std(advantage) + 1e-8)
@@ -74,23 +82,28 @@ def update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weig
         selected_action_probs = tf.reduce_sum(action_probs * onehot_actions, axis=1, keepdims=True)
         selected_action_probs = tf.clip_by_value(selected_action_probs, 1e-10, 1.0)
         
-        # Policy Lossは正規化されたAdvantageを使う
-        # tf.stop_gradientは不要になったが、念のため残しても害はない
-        policy_loss = -tf.math.log(selected_action_probs) * advantage
-
-        # Critic (Value) Lossは、Actorの学習とは独立して、vがG_tに近づくように学習する
-        value_loss = tf.keras.losses.huber(discounted_rewards, v)
-
         action_probs_clipped = tf.clip_by_value(action_probs, 1e-10, 1.0)
         entropy = -tf.reduce_sum(action_probs_clipped * tf.math.log(action_probs_clipped), axis=1, keepdims=True)
 
-        total_loss = policy_loss + value_loss_weight * value_loss + entropy_weight * entropy
-        total_loss = tf.reduce_mean(total_loss)
+        # Policy Lossは正規化されたAdvantageを使う
+        # tf.stop_gradientは不要になったが、念のため残しても害はない
+        policy_loss = -tf.reduce_mean(tf.math.log(selected_action_probs) * advantage) - entropy_weight * entropy
 
-    gradients = tape.gradient(total_loss, model.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    gradients = tape.gradient(policy_loss, actor.trainable_variables)
+    actor_optimizer.apply_gradients(zip(gradients, actor.trainable_variables))
+
+    with tf.GradientTape() as tape:
+        # Critic (Value) Lossは、Actorの学習とは独立して、vがG_tに近づくように学習する
+        v = critic(states, training=True)
+        value_loss_pure = tf.keras.losses.huber(discounted_rewards, v)
+
+        scaled_value_loss = value_loss_weight * value_loss_pure
+        scaled_value_loss = tf.reduce_mean(scaled_value_loss)
+
+    gradients = tape.gradient(scaled_value_loss, critic.trainable_variables)
+    critic_optimizer.apply_gradients(zip(gradients, critic.trainable_variables))
     
-    return total_loss.numpy(), tf.reduce_mean(entropy).numpy()
+    return tf.reduce_mean(policy_loss).numpy(),tf.reduce_mean(value_loss_pure).numpy(), tf.reduce_mean(entropy).numpy()
 
 def evaluation(model):
     test_env = gym.make("CartPole-v1")
@@ -113,34 +126,38 @@ def evaluation(model):
     val_step = np.mean(all_steps)
     return val_reward, val_step
 
-def train(env,model):
+def train(env,actor,critic):
     # --- ハイパーパラメータ (修正済み) ---
     standardize = True
     total_timesteps = 300000
     n_steps = 256#512#32
     gamma = 0.99
-    lr = 7e-4
-    clipnorm = 0.5
+    actor_lr = 3e-4
+    critic_lr = 1e-3
+    #clipnorm = 0.5
     value_loss_weight = 0.5
     entropy_weight = 0.01
 
-    print('A2C 通常版')
+    print('A2C Different Learning Rates版Ⅲ')
     print('standardize =',standardize)    
     print('total_timesteps =',total_timesteps)
     print('n_steps =',n_steps)
     print('gamma =',gamma)
-    print('lr =',lr)
-    print('clipnorm =',clipnorm)
+    print('actor_lr =',actor_lr)
+    print('critic_lr =',critic_lr)
+    #print('clipnorm =',clipnorm)
     print('value_loss_weight =',value_loss_weight)
     print('entropy_weight =',entropy_weight)
 
-    optimizer = Adam(learning_rate=lr, clipnorm=clipnorm)
+    actor_optimizer = Adam(learning_rate=actor_lr) #, clipnorm=clipnorm)
+    critic_optimizer = Adam(learning_rate=critic_lr) #, clipnorm=clipnorm)
 
     print("--- 学習開始 ---")
     start_time = time.time()
     all_rewards = []
     all_episode_steps = []
-    all_losses = [] 
+    all_p_losses = [] 
+    all_v_losses = [] 
     all_entropies = []
     
     experiences = []
@@ -153,7 +170,7 @@ def train(env,model):
 
     for global_step in range(1, total_timesteps + 1):
         episode_step_count += 1
-        action = get_action(model, state)
+        action = get_action(actor, state)
         n_state, reward, done, truncated, _ = env.step(action)
         
         episode_reward_sum += reward
@@ -174,8 +191,9 @@ def train(env,model):
             state, _ = env.reset()
 
         if len(experiences) >= n_steps:
-            loss, entropy = update(model, optimizer, experiences, gamma, value_loss_weight, entropy_weight, standardize)
-            all_losses.append(loss)
+            p_loss, v_loss, entropy = update(actor,critic, actor_optimizer, critic_optimizer, experiences, gamma, value_loss_weight, entropy_weight, standardize)
+            all_p_losses.append(p_loss)
+            all_v_losses.append(v_loss)
             all_entropies.append(entropy)
             experiences = []
             update_count += 1
@@ -183,10 +201,11 @@ def train(env,model):
         if (global_step % (n_steps*10) == 0) or global_step == total_timesteps:
             avg_reward = np.mean(all_rewards[-20:])
             avg_episode_steps = np.mean(all_episode_steps[-20:])
-            last_loss = all_losses[-1] if all_losses else 0
+            last_p_loss = all_p_losses[-1] if all_p_losses else 0
+            last_v_loss = all_v_losses[-1] if all_v_losses else 0
             last_entropy = all_entropies[-1] if all_entropies else 0
-            val_reward, val_step = evaluation(model)
-            print(f'Step:{global_step}/{total_timesteps//1000}k|Ep:{episode_count}|AvgSteps:{avg_episode_steps:.1f}|AvgReward:{avg_reward:.1f}|Loss:{last_loss:.3f}|Entropy:{last_entropy:.3f}|ValSt:{val_step:.1f}|ValRwd:{val_reward:.1f}')
+            val_reward, val_step = evaluation(actor)
+            print(f'St:{global_step}/{total_timesteps//1000}k|Ep:{episode_count}|AvgSt:{avg_episode_steps:.1f}|AvgRwd:{avg_reward:.1f}|P_Loss:{last_p_loss:.3f}|V_Loss:{last_v_loss:.3f}|Entropy:{last_entropy:.3f}|ValSt:{val_step:.1f}|ValRwd:{val_reward:.1f}')
             if avg_reward > 475:
                 print(f"環境がクリアされました！ (平均報酬: {avg_reward})")
                 break
@@ -210,7 +229,8 @@ def train(env,model):
     plt.grid(True)
 
     plt.subplot(1, 2, 2)
-    plt.plot(all_losses, label='Loss', alpha=0.7)
+    plt.plot(all_p_losses, label='P_Loss', alpha=0.7)
+    plt.plot(all_v_losses, label='V_Loss', alpha=0.7)
     plt.plot(all_entropies, label='Entropy', alpha=0.7)
     plt.title('Loss and Entropy per Update')
     plt.xlabel('Update Step')
@@ -226,19 +246,22 @@ if __name__ == '__main__':
     env = gym.make("CartPole-v1")
     obs_shape = env.observation_space.shape
     nb_actions = env.action_space.n
-    model = create_a2c_model(obs_shape, nb_actions)
-    model.summary()
+    actor,critic = create_a2c_model(obs_shape, nb_actions)
+    actor.summary()
+    critic.summary()
 
-    model_file = 'cartpole-a2c-nstep.weights.h5'
-    if os.path.isfile(model_file):
-        model.load_weights(model_file)
+    model_file = "cartpole-a2c-dlr3-nstep-{}.weights.h5"
+    if os.path.isfile(model_file.format('actor')):
+        actor.load_weights(model_file.format('actor'))
+        critic.load_weights(model_file.format('critic'))
         #load_model(model_file)
     else:
-        train(env,model)
+        train(env,actor,critic)
         # 9. 学習済みモデルの保存と評価
-        model.save_weights(model_file)
-        #save_model(model, model_file)
+        actor.save_weights(model_file.format('actor'))
+        critic.save_weights(model_file.format('critic'))
     env.close()
+
 
     print("\n--- テスト実行 ---")
     env_render = gym.make("CartPole-v1", render_mode="rgb_array")
@@ -251,10 +274,10 @@ if __name__ == '__main__':
         while not (done or truncated):
             test_steps += 1
             frames.append(env_render.render())
-            action = get_best_action(model, state)
+            action = get_best_action(actor, state)
             state, reward, done, truncated, _ = env_render.step(action)
             test_reward += reward
         print(f"Test Episode {i+1}, Test Steps: {test_steps}, Total Reward: {test_reward}")
     env_render.close()
-    imageio.mimsave('cartpole-a2c-nstep.gif', frames, fps=30)
-    print(f"GIFを'cartpole-a2c-nstep.gif'に保存しました。最終報酬: {test_reward:.2f}")
+    imageio.mimsave('cartpole-a2c-dlr3-nstep.gif', frames, fps=30)
+    print(f"GIFを'cartpole-dlr3-a2c-nstep.gif'に保存しました。最終報酬: {test_reward:.2f}")

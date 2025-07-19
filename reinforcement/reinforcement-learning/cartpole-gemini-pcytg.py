@@ -124,7 +124,7 @@ if __name__ == '__main__':
     # ハイパーパラメータ
     episodes = 500
     max_steps_per_episode = 200
-    reward_history =
+    reward_history = []
     for episode in range(episodes):
         state, _ = env.reset()
         episode_reward = 0

@@ -4,14 +4,17 @@ from tensorflow import keras
 from tensorflow.keras.optimizers import Adam
 import gymnasium as gym
 import matplotlib.pyplot as plt
+import os
 import time
+import imageio
 
 # === モデルの定義 ===
 def create_a2c_model(input_shape, num_actions):
     input_layer = keras.layers.Input(shape=input_shape)
-    common_layer = keras.layers.Dense(64, activation="relu")(input_layer)
-    common_layer = keras.layers.Dense(64, activation="relu")(common_layer)
-    actor_logits = keras.layers.Dense(num_actions, activation="linear", name="actor_logits")(common_layer)
+    common_layer = keras.layers.Dense(64, activation="relu",name="common_1")(input_layer)
+    common_layer = keras.layers.Dense(64, activation="relu",name="common_2")(common_layer)
+    last_init = keras.initializers.RandomUniform(minval=-0.003, maxval=0.003)
+    actor_logits = keras.layers.Dense(num_actions, activation="linear", name="actor_logits", kernel_initializer=last_init)(common_layer)
     critic_value = keras.layers.Dense(1, activation="linear", name="critic_value")(common_layer)
     
     # ActorとCriticのモデルを分けることで、オプティマイザも分離できる
@@ -45,7 +48,7 @@ def compute_gae_and_returns(rewards, values, next_values, dones, gamma, lambda_g
     return advantages, returns
 
 # === 学習関数 (分離更新に対応) ★★★ ===
-def train(actor, critic, actor_optimizer, critic_optimizer, experiences, gamma, lambda_gae, value_loss_weight, entropy_weight):
+def update(actor, critic, actor_optimizer, critic_optimizer, experiences, gamma, lambda_gae, value_loss_weight, entropy_weight):
     states = np.asarray([e["state"] for e in experiences], dtype=np.float32)
     actions = np.asarray([e["action"] for e in experiences], dtype=np.int32)
     rewards = np.asarray([e["reward"] for e in experiences], dtype=np.float32)
@@ -102,18 +105,31 @@ def train(actor, critic, actor_optimizer, critic_optimizer, experiences, gamma, 
     # ログには純粋な(スケーリング前の)損失を返す
     return policy_loss.numpy(), tf.reduce_mean(value_loss_pure).numpy(), entropy.numpy()
 
-# === メイン処理 ===
-if __name__ == '__main__':
-    env = gym.make("CartPole-v1")
-    obs_shape = env.observation_space.shape
-    nb_actions = env.action_space.n
-    actor, critic = create_a2c_model(obs_shape, nb_actions)
-    actor.summary()
-    critic.summary()
-    
+def evaluation(model):
+    test_env = gym.make("CartPole-v1")
+    all_rewards = []
+    all_steps = []
+    for i in range(10):
+        state, _ = test_env.reset()
+        done, truncated = False, False
+        test_reward = 0
+        test_step = 0
+        while not (done or truncated):
+            test_step += 1
+            action = get_best_action(model, state)
+            state, reward, done, truncated, _ = test_env.step(action)
+            test_reward += reward
+        all_rewards.append(test_reward)
+        all_steps.append(test_step)
+    test_env.close()
+    val_reward = np.mean(all_rewards)
+    val_step = np.mean(all_steps)
+    return val_reward, val_step
+
+def train(env,actor,critic):
     # --- ハイパーパラメータ (PyTorch版を参考に調整) ★★★ ---
-    total_timesteps = 180000
-    n_steps = 512#256 # バッチサイズを大きくすると安定しやすい
+    total_timesteps = 300000
+    n_steps = 256 # 512 # バッチサイズを大きくすると安定しやすい
     gamma = 0.99
     lambda_gae = 0.95 # GAEのλ
     actor_lr = 3e-4
@@ -162,7 +178,7 @@ if __name__ == '__main__':
             
         # --- 学習 ---
         if len(experiences) >= n_steps:
-            p_loss, v_loss, entropy = train(actor, critic, actor_optimizer, critic_optimizer, experiences, gamma, lambda_gae, value_loss_weight, entropy_weight)
+            p_loss, v_loss, entropy = update(actor, critic, actor_optimizer, critic_optimizer, experiences, gamma, lambda_gae, value_loss_weight, entropy_weight)
             all_p_losses.append(p_loss)
             all_v_losses.append(v_loss)
             all_entropies.append(entropy)
@@ -180,9 +196,10 @@ if __name__ == '__main__':
             avg_p_loss = np.mean(all_p_losses[-20:]) if all_p_losses else 0
             avg_v_loss = np.mean(all_v_losses[-20:]) if all_v_losses else 0
             avg_entropy = np.mean(all_entropies[-20:]) if all_entropies else 0
-            print(f"Update#{update_count} | Step {global_step}/{total_timesteps//1000}k | Ep {episode_count} | Avg Reward (last 20): {avg_reward:.1f} | P_Loss: {avg_p_loss:.3f} | V_Loss: {avg_v_loss:.3f} | Entropy: {avg_entropy:.3f}")
+            val_reward, val_step = evaluation(actor)
+            print(f"Step:{global_step}/{total_timesteps//1000}k|Ep:{episode_count}|AvgRwd:{avg_reward:.1f}|P_Loss:{avg_p_loss:.3f}|V_Loss: {avg_v_loss:.3f}|Entropy:{avg_entropy:.3f}|ValSt:{val_step:.1f}|ValRwd:{val_reward:.1f}")
             if avg_reward > 475: # CartPole-v1のクリア基準
-                print("Environment solved!")
+                print(f"Environment solved! Average reward: {avg_reward:.1f}")
                 break
 
 
@@ -215,16 +232,46 @@ if __name__ == '__main__':
     plt.grid(True)
     plt.tight_layout()
     plt.show()
-    
+
+
+# === メイン処理 ===
+if __name__ == '__main__':
+    env = gym.make("CartPole-v1")
+    obs_shape = env.observation_space.shape
+    nb_actions = env.action_space.n
+    actor, critic = create_a2c_model(obs_shape, nb_actions)
+    actor.summary()
+    critic.summary()
+
+    model_file = "cartpole-a2c-gae-nstep-{}.weights.h5"
+    if os.path.isfile(model_file.format('actor')):
+        actor.load_weights(model_file.format('actor'))
+        critic.load_weights(model_file.format('critic'))
+        #load_model(model_file)
+    else:
+        train(env,actor,critic)
+        # 9. 学習済みモデルの保存と評価
+        actor.save_weights(model_file.format('actor'))
+        critic.save_weights(model_file.format('critic'))
+    env.close()
+
+
     print("\n--- テスト実行 ---")
-    env_render = gym.make("CartPole-v1", render_mode="human")
+    env_render = gym.make("CartPole-v1", render_mode="rgb_array")
     for i in range(5):
         state, _ = env_render.reset()
         done, truncated = False, False
         test_reward = 0
+        test_steps = 0
+        frames = []
         while not (done or truncated):
+            test_steps += 1
+            frames.append(env_render.render())
             action = get_best_action(actor, state)
             state, reward, done, truncated, _ = env_render.step(action)
             test_reward += reward
-        print(f"Test Episode {i+1}, Total Reward: {test_reward}")
+        print(f"Test Episode {i+1}, Test Steps: {test_steps}, Total Reward: {test_reward}")
     env_render.close()
+    imageio.mimsave('cartpole-a2c-gae-nstep.gif', frames, fps=30)
+    print(f"GIFを'cartpole-a2c-gae-nstep.gif'に保存しました。最終報酬: {test_reward:.2f}")
+    
