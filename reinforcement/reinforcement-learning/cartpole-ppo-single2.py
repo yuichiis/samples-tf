@@ -27,7 +27,8 @@ def sample(logits):
 
 def log_prob_entropy(logits, actions):
     # 1. 新しい方策での対数確率を計算
-    log_probs_all = tf.nn.log_softmax(logits)
+    #log_probs_all = tf.nn.log_softmax(logits)
+    log_probs_all = tf.math.log(tf.nn.softmax(logits))
     indices = tf.stack([tf.range(tf.shape(actions)[0]), actions], axis=1)
     new_log_probs = tf.gather_nd(log_probs_all, indices)
 
@@ -37,6 +38,26 @@ def log_prob_entropy(logits, actions):
     entropy = entropy_per_sample
 
     return new_log_probs, entropy
+
+def standardize(
+    x,         # (rolloutSteps)
+    ddof=None,
+    ) :
+    # baseline
+    mean = np.mean(x)     # ()
+
+    baseX = x - mean                    # (rolloutSteps)
+    # std
+    if ddof:
+        n = len(x)-1
+    else :
+        n = len(x)
+
+    variance = np.sum(np.square(baseX)) / n                 # ()
+    stdDev = np.sqrt(variance)                              # ()
+    # standardize
+    result = baseX / (stdDev + 1e-8)                        # (rolloutSteps)
+    return result                                           # (rolloutSteps)
 
 
 # ===================================================================
@@ -162,7 +183,8 @@ def main():
         )
 
         if STANDARDIZE:
-            advantages = (advantages - np.mean(advantages)) / (np.std(advantages) + 1e-8)
+            #advantages = (advantages - np.mean(advantages)) / (np.std(advantages) + 1e-8)
+            advantages = standardize(advantages)
 
         advantages_tensor = tf.convert_to_tensor(advantages, dtype=tf.float32)
         returns_tensor = tf.convert_to_tensor(returns, dtype=tf.float32)
@@ -180,7 +202,6 @@ def main():
         for _ in range(N_EPOCHS):
             for batch in dataset:
                 states_b, actions_b, old_log_probs_b, advantages_b, returns_b = batch
-                
                 # persistent=True は不要
                 with tf.GradientTape() as tape:
                     # 現在のモデルで予測
@@ -210,6 +231,7 @@ def main():
                 grads = tape.gradient(total_loss, model.trainable_variables)
                 optimizer.apply_gradients(zip(grads, model.trainable_variables))
 
+                #print('actor_loss=',actor_loss.numpy(),'critic_loss=',critic_loss.numpy(),'entropy_loss=',entropy_loss.numpy())
                 avg_loss += total_loss
                 avg_entropy += -entropy_loss
                 num_batches += 1
