@@ -280,7 +280,7 @@ def main():
     
     env_render.close()
     
-    gif_path = 'pendulum-a2c-dlr3-nstep3.gif'
+    gif_path = 'pendulum-ppo-single2.gif'
     imageio.mimsave(gif_path, frames, fps=30)
     print(f"GIFを'{gif_path}'に保存しました。")
 
